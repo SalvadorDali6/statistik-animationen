@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wechselwirkung und Krümmung</title>
+<style>
+/* Plan: A2, Flaeche in 3D links, Wechselwirkungsdiagramm rechts, 5 Regler fuer die Modellterme. Basis: Statussatz zum Vorlesen,
+   zwei gekoppelte Grafiken. Tuerkis = genau genug, Orange = die Anforderung (Schwelle), Grau = Rest. */
+:root{
+  --bg:#f7f8f8; --panel:#ffffff; --ink:#1d2430; --muted:#667080; --line:#dfe3e6;
+  --teal:#0f8a80; --teal-soft:#cfeae6; --orange:#d9730d; --ok:#1f7a4d; --bad:#b3372f;
+  --map-lo:#eef3f3; --map-hi:#2f7f78; --star:#b3372f;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+    --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+    --map-lo:#262c31; --map-hi:#4fc9bd; --star:#ef8a80;}
+}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+  --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+  --map-lo:#262c31; --map-hi:#4fc9bd; --star:#ef8a80;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:17px;line-height:1.4;padding:16px clamp(16px,3vw,36px) 20px;max-width:1480px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.55rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto 1fr;gap:14px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--teal-soft);border-color:var(--teal);color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.85rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.sliders{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:10px 20px}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:.95rem}
+.ctl output{font-variant-numeric:tabular-nums;color:var(--orange)}
+input[type=range]{width:100%;accent-color:var(--orange);margin:4px 0 0;height:20px}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--teal);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:76px}
+.status p{margin:0;font-size:1.12rem;max-width:95ch}
+.nums{display:flex;gap:26px}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.78rem;white-space:nowrap}
+.nums .v{font-size:1.35rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font-size:.8rem;font-weight:600;border-radius:999px;padding:1px 9px;margin-left:6px;vertical-align:middle;border:1.5px solid currentColor}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--bad)}
+.plots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 6px;min-width:0}
+.card h2{font-size:1rem;font-weight:650;margin:0}
+.cardhead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cardhead button{padding:3px 10px;font-size:.85rem}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.card p{margin:1px 0 4px;color:var(--muted);font-size:.86rem}
+canvas{display:block;width:100%;height:auto;touch-action:none}
+#surf{aspect-ratio:900/700;cursor:grab}
+#ia{aspect-ratio:900/470}
+.formula{margin:6px 0 0;font-size:1.05rem;font-variant-numeric:tabular-nums}
+.formula span{white-space:nowrap}
+.formula .off{color:var(--muted);opacity:.55}
+.formula b{font-weight:650}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;margin-top:6px}
+th,td{text-align:right;padding:6px 8px;border-top:1px solid var(--line)}
+th{font-size:.78rem;color:var(--muted);font-weight:600;border-top:0}
+th:first-child,td:first-child{text-align:left}
+.sw{display:inline-block;width:26px;height:4px;border-radius:2px;margin-right:8px;vertical-align:middle}
+@media (max-width:860px){.bar,.status{grid-template-columns:1fr}.sliders,.plots{grid-template-columns:1fr}.nums div{text-align:left}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Vom einfachen Modell zur gekrümmten Fläche</h1>
+    <p class="sub">Ausbeute als Funktion von Temperatur und Zeit. Jeder Regler ist ein Term im Modell.</p>
+  </div>
+  <button id="full" type="button">Vollbild</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Zurück</button>
+    <button id="next" type="button" class="primary">Weiter</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="sliders">
+    <div class="ctl"><label for="b1">Effekt Temperatur <output id="b1Out"></output></label><input id="b1" type="range" min="-20" max="20" step="1"></div>
+    <div class="ctl"><label for="b2">Effekt Zeit <output id="b2Out"></output></label><input id="b2" type="range" min="-20" max="20" step="1"></div>
+    <div class="ctl"><label for="b12">Wechselwirkung <output id="b12Out"></output></label><input id="b12" type="range" min="-20" max="20" step="1"></div>
+    <div class="ctl"><label for="b11">Krümmung Temp. <output id="b11Out"></output></label><input id="b11" type="range" min="-20" max="20" step="1"></div>
+    <div class="ctl"><label for="b22">Krümmung Zeit <output id="b22Out"></output></label><input id="b22" type="range" min="-20" max="20" step="1"></div>
+  </div>
+</div>
+
+<div class="status" style="grid-template-columns:1fr">
+  <div>
+    <p id="say"></p>
+    <p class="formula" id="formula"></p>
+  </div>
+</div>
+
+<div class="plots">
+  <div class="card">
+    <h2>Die Fläche</h2>
+    <p id="surfsub"></p>
+    <canvas id="surf" width="900" height="700" tabindex="0" aria-label="3D-Fläche der Ausbeute, mit der Maus drehbar"></canvas>
+  </div>
+  <div class="card">
+    <h2>Wechselwirkungsdiagramm</h2>
+    <p>Ausbeute über der Temperatur, einmal bei kurzer und einmal bei langer Zeit.</p>
+    <canvas id="ia" width="900" height="470"></canvas>
+    <table>
+      <thead><tr><th>Temperatur von 50 auf 120 °C</th><th>Ausbeute bei 50 °C</th><th>bei 120 °C</th><th>Gewinn</th></tr></thead>
+      <tbody>
+        <tr><td><span class="sw" style="background:var(--orange)"></span>bei 4 h</td><td id="l1"></td><td id="l2"></td><td id="l3"></td></tr>
+        <tr><td><span class="sw" style="background:var(--ink)"></span>bei 24 h</td><td id="h1"></td><td id="h2"></td><td id="h3"></td></tr>
+        <tr><td><span class="sw" style="background:var(--star);height:10px;width:10px;border-radius:50%;margin-left:8px;margin-right:16px"></span>Höchste Ausbeute</td><td id="o1" colspan="2"></td><td id="o2"></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id)};
+var KEYS=["b1","b2","b12","b11","b22"],B0=70,LAST=4;
+var PRE=[{b1:15,b2:0,b12:0,b11:0,b22:0},{b1:15,b2:8,b12:0,b11:0,b22:0},{b1:15,b2:8,b12:-14,b11:0,b22:0},{b1:15,b2:8,b12:-14,b11:-12,b22:-6}];
+var c={b1:15,b2:0,b12:0,b11:0,b22:0},st={step:0,az:0,el:0,s:320},FONT;
+function on(v){return Math.abs(v)>=0.5}
+function cam(m){return on(m.b2)?{az:st.el<0.25?-0.62:st.az,el:0.5,s:232}:{az:0,el:0,s:320}}
+function hier(){if(!on(c.b1)){c.b12=0;c.b11=0}if(!on(c.b2)){c.b12=0;c.b22=0}}
+function de(x,k){return x.toFixed(k).replace(".",",").replace("-","−")}
+function sg(v){return (v>0?"+":"")+de(v,0)}
+function f(T,t){return B0+c.b1*T+c.b2*t+c.b12*T*t+c.b11*T*T+c.b22*t*t}
+function cl(v){return Math.max(0,Math.min(100,v))}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function rgb(h){h=h.replace("#","");return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)]}
+function mix(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}
+function opt(){var b=null;for(var i=0;i<=40;i++)for(var j=0;j<=40;j++){var T=-1+i/20,t=-1+j/20,y=f(T,t);if(!b||y>b.y+1e-9)b={T:T,t:t,y:y}}return b}
+function temp(T){return 85+35*T} function time(t){return 14+10*t}
+
+function drawSurf(){
+  var cv=$("surf"),x=cv.getContext("2d"),ink=css("--ink"),muted=css("--muted"),line=css("--line"),or=css("--orange");
+  var lo=rgb(css("--map-lo")),hi=rgb(css("--map-hi")),CX=455,CY=480,S=st.s,EL=st.el,HS=3.0,ca=Math.cos(st.az),sa=Math.sin(st.az);
+  function P(a,b,z){var xr=a*ca-b*sa,yr=a*sa+b*ca;return [CX+xr*S,CY+yr*S*EL-cl(z)*HS,yr]}
+  x.clearRect(0,0,cv.width,cv.height);
+  var cs=[[-1,-1],[1,-1],[1,1],[-1,1]].map(function(p){return {p:p,s:P(p[0],p[1],0)}});
+  x.fillStyle=css("--bg");x.beginPath();cs.forEach(function(k,n){x[n?"lineTo":"moveTo"](k.s[0],k.s[1])});x.closePath();x.fill();
+  x.strokeStyle=ink;x.lineWidth=2;x.stroke();
+  var back=cs.slice().sort(function(u,w){return u.s[2]-w.s[2]}),left=cs.slice().sort(function(u,w){return u.s[0]-w.s[0]})[0];
+  x.strokeStyle=line;x.lineWidth=1.5;back.slice(0,3).forEach(function(k){var t=P(k.p[0],k.p[1],100);x.beginPath();x.moveTo(k.s[0],k.s[1]);x.lineTo(t[0],t[1]);x.stroke()});
+  x.font="20px "+FONT;x.fillStyle=muted;x.textAlign="right";x.textBaseline="middle";
+  [0,20,40,60,80,100].forEach(function(z){var t=P(left.p[0],left.p[1],z);x.fillText(z+" %",t[0]-12,t[1]);x.strokeStyle=muted;x.beginPath();x.moveTo(t[0]-6,t[1]);x.lineTo(t[0],t[1]);x.stroke()});
+  var N=24,q=[],i,j;
+  for(i=0;i<N;i++)for(j=0;j<N;j++){var a0=-1+2*i/N,a1=-1+2*(i+1)/N,b0=-1+2*j/N,b1=-1+2*(j+1)/N;q.push({a0:a0,a1:a1,b0:b0,b1:b1,d:(a0+a1)/2*sa+(b0+b1)/2*ca})}
+  q.sort(function(u,w){return u.d-w.d});
+  q.forEach(function(k){var v=cl(f((k.a0+k.a1)/2,(k.b0+k.b1)/2)),cc=mix(lo,hi,v/100),p=[P(k.a0,k.b0,f(k.a0,k.b0)),P(k.a1,k.b0,f(k.a1,k.b0)),P(k.a1,k.b1,f(k.a1,k.b1)),P(k.a0,k.b1,f(k.a0,k.b1))];
+    x.beginPath();x.moveTo(p[0][0],p[0][1]);for(var n=1;n<4;n++)x.lineTo(p[n][0],p[n][1]);x.closePath();
+    x.fillStyle="rgb("+Math.round(cc[0])+","+Math.round(cc[1])+","+Math.round(cc[2])+")";x.fill();x.strokeStyle="rgba(0,0,0,.16)";x.lineWidth=1;x.stroke()});
+  function edge(b,col){x.beginPath();for(var n=0;n<=40;n++){var a=-1+n/20,p=P(a,b,f(a,b));x[n?"lineTo":"moveTo"](p[0],p[1])}x.strokeStyle=col;x.lineWidth=6;x.lineJoin="round";x.lineCap="round";x.stroke()}
+  var e=[[-1,or],[1,ink]].sort(function(u,w){return P(0,u[0],0)[2]-P(0,w[0],0)[2]});e.forEach(function(k){edge(k[0],k[1])});
+  var o=opt(),po=P(o.T,o.t,o.y),pf=P(o.T,o.t,0),sc=css("--star");
+  x.setLineDash([5,5]);x.strokeStyle=sc;x.lineWidth=2;x.beginPath();x.moveTo(po[0],po[1]);x.lineTo(pf[0],pf[1]);x.stroke();x.setLineDash([]);
+  x.beginPath();x.arc(po[0],po[1],10,0,7);x.fillStyle=sc;x.fill();x.strokeStyle=css("--panel");x.lineWidth=2.5;x.stroke();
+  x.beginPath();x.arc(pf[0],pf[1],5,0,7);x.fillStyle=sc;x.fill();
+  /* Achsen am Boden */
+  x.fillStyle=ink;x.font="600 22px "+FONT;x.textAlign="center";x.textBaseline="top";
+  var fr=cs.slice().sort(function(u,w){return w.s[2]-u.s[2]})[0];
+  cs.filter(function(k){return k!==fr&&(k.p[0]===fr.p[0]||k.p[1]===fr.p[1])}).forEach(function(k){
+    var isT=k.p[1]===fr.p[1],mxp=(k.s[0]+fr.s[0])/2,myp=(k.s[1]+fr.s[1])/2,dx=mxp<fr.s[0]?-1:1;
+    var al=isT?1:Math.min(1,EL/0.3);x.globalAlpha=al;
+    x.font="600 22px "+FONT;x.fillStyle=ink;x.fillText(isT?"Temperatur":"Zeit",isT?mxp+dx*46*Math.min(1,EL/0.3):mxp+dx*46,myp+26+(isT?(1-Math.min(1,EL/0.3))*22:0));
+    x.font="20px "+FONT;x.fillStyle=muted;
+    var vk=isT?(k.p[0]<0?"50 °C":"120 °C"):(k.p[1]<0?"4 h":"24 h"),vf=isT?(fr.p[0]<0?"50 °C":"120 °C"):(fr.p[1]<0?"4 h":"24 h");
+    if(EL>0.08||!isT){x.fillText(vk,k.s[0]+dx*34,k.s[1]+30);x.fillText(vf,fr.s[0]+dx*44,fr.s[1]+8)}x.globalAlpha=1});
+  if(EL<=0.08){x.font="20px "+FONT;x.fillStyle=muted;x.textAlign="center";x.textBaseline="top";
+    [50,60,70,80,90,100,110,120].forEach(function(tp){var p=P((tp-85)/35,0,0);x.fillText(tp+(tp===120?" °C":""),p[0],p[1]+10);x.strokeStyle=muted;x.lineWidth=1.5;x.beginPath();x.moveTo(p[0],p[1]);x.lineTo(p[0],p[1]+7);x.stroke()})}
+}
+var IL=118,IR=90,IT=14,IB=74,IW=900-IL-IR,IH=470-IT-IB;
+function drawIa(){
+  var cv=$("ia"),x=cv.getContext("2d"),ink=css("--ink"),muted=css("--muted"),line=css("--line"),or=css("--orange");
+  function X(T){return IL+(T+1)/2*IW} function Y(v){return IT+IH-cl(v)/100*IH}
+  x.clearRect(0,0,cv.width,cv.height);x.font="20px "+FONT;x.lineWidth=1;
+  [0,20,40,60,80,100].forEach(function(v){x.strokeStyle=line;x.beginPath();x.moveTo(IL,Y(v));x.lineTo(IL+IW,Y(v));x.stroke();x.fillStyle=muted;x.textAlign="right";x.textBaseline="middle";x.fillText(v+" %",IL-10,Y(v))});
+  [50,60,70,80,90,100,110,120].forEach(function(tp){var px=X((tp-85)/35);x.fillStyle=muted;x.textAlign="center";x.textBaseline="top";x.fillText(tp,px,IT+IH+8)});
+  x.strokeStyle=ink;x.lineWidth=2;x.strokeRect(IL,IT,IW,IH);
+  x.fillStyle=ink;x.font="600 21px "+FONT;x.textAlign="center";x.textBaseline="top";x.fillText("Temperatur (°C)",IL+IW/2,IT+IH+38);
+  x.save();x.translate(16,IT+IH/2);x.rotate(-Math.PI/2);x.fillText("Ausbeute",0,0);x.restore();
+  var same=Math.abs(c.b2)<0.5&&Math.abs(c.b12)<0.5;
+  function ln(t,col,name,dash){x.beginPath();for(var n=0;n<=40;n++){var T=-1+n/20;x[n?"lineTo":"moveTo"](X(T),Y(f(T,t)))}
+    x.strokeStyle=col;x.lineWidth=5;x.lineJoin="round";x.setLineDash(dash||[]);x.stroke();x.setLineDash([]);
+    [-1,1].forEach(function(T){x.beginPath();x.arc(X(T),Y(f(T,t)),8,0,7);x.fillStyle=col;x.fill()});
+    x.font="600 21px "+FONT;x.fillStyle=col;x.textAlign="left";x.textBaseline="middle";var dy=0;
+    if(Math.abs(Y(f(1,-1))-Y(f(1,1)))<24)dy=(t<0)===(f(1,-1)>=f(1,1))?-13:13;x.fillText(name,X(1)+14,Y(f(1,t))+dy)}
+  ln(1,ink,"24 h");ln(-1,or,"4 h",same?[10,10]:null);
+}
+function formula(){
+  function term(v,txt,first){var off=Math.abs(v)<0.5;return '<span class="'+(off?"off":"")+'">'+(first?"":(v<0?" − ":" + "))+"<b>"+de(Math.abs(v),0)+"</b>"+txt+"</span>"}
+  $("formula").innerHTML="Ausbeute = <b>"+B0+"</b>"+term(c.b1," · Temp")+term(c.b2," · Zeit")+term(c.b12," · Temp · Zeit")+term(c.b11," · Temp²")+term(c.b22," · Zeit²")+' <span class="off">&nbsp;(Faktoren kodiert von −1 bis +1)</span>'}
+function say(){
+  var gl=2*(c.b1-c.b12),gh=2*(c.b1+c.b12),o=opt(),inner=Math.abs(o.T)<0.999&&Math.abs(o.t)<0.999;
+  switch(st.step){
+    case 0:return "Ein Faktor: Die Ausbeute hängt nur von der Temperatur ab. Die Fläche ist eine schiefe Ebene, die Zeit spielt keine Rolle. Rechts liegen beide Linien übereinander.";
+    case 1:return "Zwei Faktoren ohne Wechselwirkung: Auch die Zeit hat jetzt einen Effekt. Die Fläche bleibt eine Ebene. Die Linien rechts sind parallel: Mehr Temperatur bringt bei 4 h genauso viel wie bei 24 h.";
+    case 2:return "Mit Wechselwirkung verdreht sich die Ebene. Mehr Temperatur bringt bei 4 h "+sg(gl)+" Punkte, bei 24 h nur "+sg(gh)+". Der Effekt der Temperatur hängt von der Zeit ab. Die Linien sind nicht mehr parallel.";
+    case 3:return "Mit Krümmung wölbt sich die Fläche. Die höchste Ausbeute muss jetzt nicht mehr in einer Ecke liegen. Um Krümmung zu schätzen, braucht jeder Faktor mindestens 3 Stufen.";
+    default:
+      if(!on(c.b1)||!on(c.b2)){var miss=!on(c.b1)&&!on(c.b2)?"Temperatur und Zeit sind":(!on(c.b1)?"Die Temperatur ist":"Die Zeit ist");
+        return miss+" nicht im Modell. Eine Wechselwirkung gibt es nur zwischen zwei Faktoren, die beide im Modell sind. Die abhängigen Regler sind deshalb gesperrt."}
+      var s=Math.abs(c.b12)<0.5?"Keine Wechselwirkung: Die Linien sind parallel.":(Math.abs(c.b2)<Math.abs(c.b12)?"Starke Wechselwirkung: Die Linien kreuzen sich.":"Wechselwirkung: Die Linien sind nicht parallel.");
+      s+=(Math.abs(c.b11)>0.5||Math.abs(c.b22)>0.5)?" Die Fläche ist gekrümmt.":" Die Fläche ist nicht gekrümmt.";
+      return s+" Höchste Ausbeute "+(inner?"im Inneren":"am Rand")+" bei "+de(temp(o.T),0)+" °C und "+de(time(o.t),0)+" h.";
+  }}
+function render(){FONT=css("--font");
+  var lock={b12:!(on(c.b1)&&on(c.b2)),b11:!on(c.b1),b22:!on(c.b2)};
+  KEYS.forEach(function(k){$(k).value=Math.round(c[k]);$(k).disabled=!!lock[k];$(k).parentNode.style.opacity=lock[k]?0.4:1;$(k+"Out").textContent=lock[k]?"gesperrt":sg(Math.round(c[k]))});
+  $("say").textContent=say();formula();
+  $("stepno").textContent=st.step<LAST?"Schritt "+(st.step+1)+" von "+(LAST+1):"freier Modus";
+  $("surfsub").textContent=st.el<0.05?"Von der Seite gesehen: Ausbeute über der Temperatur. Die Zeit spielt noch keine Rolle.":"Höhe und Farbe = Ausbeute. Ziehen dreht die Ansicht. Die zwei dicken Kanten sind die Linien im Diagramm rechts.";
+  $("back").disabled=st.step===0;$("next").disabled=st.step===LAST;
+  var a=f(-1,-1),b=f(1,-1),d=f(-1,1),e=f(1,1),o=opt();
+  $("l1").textContent=de(cl(a),0)+" %";$("l2").textContent=de(cl(b),0)+" %";$("l3").textContent=sg(cl(b)-cl(a));
+  $("h1").textContent=de(cl(d),0)+" %";$("h2").textContent=de(cl(e),0)+" %";$("h3").textContent=sg(cl(e)-cl(d));
+  $("o1").textContent=de(temp(o.T),0)+" °C / "+de(time(o.t),0)+" h";$("o2").textContent=de(cl(o.y),0)+" %";
+  drawSurf();drawIa()}
+var raf=0;
+var CK=["az","el","s"];
+function tween(target,ct){cancelAnimationFrame(raf);var from={},cf={},t0=0;if(!target){target={};KEYS.forEach(function(k){target[k]=c[k]})}
+  KEYS.forEach(function(k){from[k]=c[k]});CK.forEach(function(k){cf[k]=st[k]});
+  function fin(){KEYS.forEach(function(k){c[k]=target[k]});CK.forEach(function(k){st[k]=ct[k]});render()}
+  if(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches){fin();return}
+  function tick(ts){if(!t0)t0=ts;var p=Math.min(1,(ts-t0)/1300),e=0.5-0.5*Math.cos(Math.PI*p);
+    KEYS.forEach(function(k){c[k]=from[k]+(target[k]-from[k])*e});CK.forEach(function(k){st[k]=cf[k]+(ct[k]-cf[k])*e});render();
+    if(p<1)raf=requestAnimationFrame(tick);else fin()}
+  raf=requestAnimationFrame(tick)}
+function go(n){st.step=Math.max(0,Math.min(LAST,n));var p=PRE[Math.min(st.step,3)];tween(p,cam(p))}
+KEYS.forEach(function(k){$(k).addEventListener("input",function(e){cancelAnimationFrame(raf);KEYS.forEach(function(q){c[q]=Math.round(c[q])});c[k]=+e.target.value;hier();st.step=LAST;
+  var q=cam(c);if(Math.abs(q.el-st.el)>0.01)tween(null,q);else render()})});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){go(0)});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+(function(){var m=$("surf"),dr=false,lx=0;
+  m.addEventListener("pointerdown",function(e){if(st.el<0.4)return;dr=true;lx=e.clientX;try{m.setPointerCapture(e.pointerId)}catch(err){}});
+  m.addEventListener("pointermove",function(e){if(!dr)return;st.az+=(e.clientX-lx)*0.008;lx=e.clientX;drawSurf()});
+  m.addEventListener("pointerup",function(){dr=false});m.addEventListener("pointercancel",function(){dr=false})})();
+window.a2Set=function(step,mid){st.step=step;var p=PRE[Math.min(step,3)];KEYS.forEach(function(k){c[k]=p[k]});var q=cam(p);if(mid){q={az:-0.31,el:0.25,s:276}}CK.forEach(function(k){st[k]=q[k]});render()};
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+render();
+})();
+</script>
+</body>
+</html>

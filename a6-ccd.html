@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCD Schritt für Schritt</title>
+<style>
+/* Plan: A6, links der Aufbau des CCD Punkt fuer Punkt, rechts die Karte des Standardfehlers und was sich schaetzen laesst. Tuerkis = Eckpunkte, Dunkel = Mitte, Orange = Sternpunkte. Vorlage: Statussatz zum Vorlesen,
+   zwei gekoppelte Grafiken. Tuerkis = genau genug, Orange = die Anforderung (Schwelle), Grau = Rest. */
+:root{
+  --bg:#f7f8f8; --panel:#ffffff; --ink:#1d2430; --muted:#667080; --line:#dfe3e6;
+  --teal:#0f8a80; --teal-soft:#cfeae6; --orange:#d9730d; --ok:#1f7a4d; --bad:#b3372f;
+  --map-lo:#f1f3f4; --map-hi:#8b929b;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+    --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+    --map-lo:#2a2f35; --map-hi:#0c0e10;}
+}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+  --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+  --map-lo:#2a2f35; --map-hi:#0c0e10;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:17px;line-height:1.4;padding:16px clamp(16px,3vw,36px) 20px;max-width:1480px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.55rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto 1fr;gap:14px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--teal-soft);border-color:var(--teal);color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.85rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.sliders{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));gap:10px 24px;align-items:end}
+.chk{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.95rem}
+.chk input{width:20px;height:20px;accent-color:var(--orange)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;margin-top:4px}
+th,td{text-align:right;padding:5px 8px;border-top:1px solid var(--line)}
+th{font-size:.78rem;color:var(--muted);font-weight:600;border-top:0}
+th:first-child,td:first-child{text-align:left}
+.yes{color:var(--ok);font-weight:650}.no{color:var(--muted)}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:.95rem}
+.ctl output{font-variant-numeric:tabular-nums;color:var(--orange)}
+input[type=range]{width:100%;accent-color:var(--orange);margin:4px 0 0;height:20px}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--teal);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:76px}
+.status p{margin:0;font-size:1.12rem;max-width:95ch}
+.nums{display:flex;gap:26px}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.78rem;white-space:nowrap}
+.nums .v{font-size:1.35rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font-size:.8rem;font-weight:600;border-radius:999px;padding:1px 9px;margin-left:6px;vertical-align:middle;border:1.5px solid currentColor}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--bad)}
+.plots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 6px;min-width:0}
+.card h2{font-size:1rem;font-weight:650;margin:0}
+.cardhead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cardhead button{padding:3px 10px;font-size:.85rem}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.card p{margin:1px 0 4px;color:var(--muted);font-size:.86rem}
+canvas{display:block;width:100%;height:auto;touch-action:none}
+#des{aspect-ratio:900/720}
+#sem{aspect-ratio:900/560}
+@media (max-width:860px){.bar,.status{grid-template-columns:1fr}.sliders,.plots{grid-template-columns:1fr}.nums div{text-align:left}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Central Composite Design: Punkt für Punkt aufgebaut</h1>
+    <p class="sub">2 Faktoren. Erst die Ecken, dann die Mitte, dann die Sternpunkte.</p>
+  </div>
+  <button id="full" type="button">Vollbild</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Zurück</button>
+    <button id="next" type="button" class="primary">Weiter</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="sliders">
+    <div class="ctl"><label for="al">Abstand der Sternpunkte α <output id="alOut"></output></label><input id="al" type="range" min="1" max="1.7" step="0.01"></div>
+    <div class="ctl"><label for="nc">Center Points <output id="ncOut"></output></label><input id="nc" type="range" min="1" max="8" step="1"></div>
+    <label class="chk" for="ins"><input id="ins" type="checkbox"> eingeschrieben (alles bleibt innerhalb ±1)</label>
+  </div>
+</div>
+
+<div class="status" style="grid-template-columns:1fr"><p id="say"></p></div>
+
+<div class="plots">
+  <div class="card">
+    <h2>Das Design</h2>
+    <p>Gestrichelt: der Bereich zwischen den Eckpunkten (±1). <span style="color:var(--teal);font-weight:650">Eckpunkte</span>, <span style="font-weight:650">Center Points</span>, <span style="color:var(--orange);font-weight:650">Sternpunkte</span>.</p>
+    <canvas id="des" width="900" height="720"></canvas>
+  </div>
+  <div class="card">
+    <h2>Standardfehler der Vorhersage</h2>
+    <p id="semsub"></p>
+    <canvas id="sem" width="900" height="560"></canvas>
+    <table>
+      <thead><tr><th>Was kann das Design?</th><th></th><th>Kennzahl</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Haupteffekte und Wechselwirkung</td><td id="c1"></td><td style="text-align:left">Runs</td><td id="n1"></td></tr>
+        <tr><td>Krümmung nachweisen</td><td id="c2"></td><td style="text-align:left">Stufen je Faktor</td><td id="n2"></td></tr>
+        <tr><td>Krümmung je Faktor schätzen</td><td id="c3"></td><td style="text-align:left">VIF der quadratischen Terme</td><td id="n3"></td></tr>
+        <tr><td>Rotierbar</td><td id="c4"></td><td style="text-align:left">Standardfehler Mitte / Eckpunkt</td><td id="n4" style="white-space:nowrap"></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id)};
+var LAST=4,ROT=Math.SQRT2,R=1.85,G=100;
+var st={step:0,al:1,nc:5,ins:false},FONT,MI=null,QUAD=false,se=new Float32Array(G*G);
+function de(x,k){return x.toFixed(k).replace(".",",")}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function rgb(h){h=h.replace("#","");return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)]}
+function mix(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}
+function inv(A){var n=A.length,M=[],i,j,k;
+  for(i=0;i<n;i++){M[i]=A[i].slice();for(j=0;j<n;j++)M[i].push(i===j?1:0)}
+  for(i=0;i<n;i++){var p=i;for(k=i+1;k<n;k++)if(Math.abs(M[k][i])>Math.abs(M[p][i]))p=k;
+    var t=M[i];M[i]=M[p];M[p]=t;var piv=M[i][i];for(j=0;j<2*n;j++)M[i][j]/=piv;
+    for(k=0;k<n;k++)if(k!==i){var f=M[k][i];if(f!==0)for(j=0;j<2*n;j++)M[k][j]-=f*M[i][j]}}
+  return M.map(function(r){return r.slice(n)})}
+function show(){var s=st.step;return {cen:s>=1,ax:s>=2}}
+function pts(){var sh=show(),k=st.ins?1/st.al:1,P=[];
+  [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(function(p){P.push({a:p[0]*k,b:p[1]*k,t:"f"})});
+  if(sh.cen)for(var i=0;i<st.nc;i++)P.push({a:0,b:0,t:"c"});
+  if(sh.ax)[[-1,0],[1,0],[0,-1],[0,1]].forEach(function(p){P.push({a:p[0]*st.al*k,b:p[1]*st.al*k,t:"s"})});
+  return P}
+function row(a,b){return QUAD?[1,a,b,a*b,a*a,b*b]:[1,a,b,a*b]}
+function seAt(a,b){var r=row(a,b),n=r.length,v=0;for(var k=0;k<n;k++){var t=0;for(var m=0;m<n;m++)t+=MI[k][m]*r[m];v+=r[k]*t}return Math.sqrt(Math.max(0,v))}
+var VIF=null;
+function build(){var P=pts();QUAD=show().ax;var n=QUAD?6:4,A=[],i,j;
+  for(i=0;i<n;i++){A[i]=[];for(j=0;j<n;j++)A[i][j]=0}
+  P.forEach(function(p){var r=row(p.a,p.b);for(i=0;i<n;i++)for(j=0;j<n;j++)A[i][j]+=r[i]*r[j]});
+  MI=inv(A);
+  for(i=0;i<G;i++)for(j=0;j<G;j++)se[i*G+j]=seAt(-R+2*R*(j+0.5)/G,R-2*R*(i+0.5)/G);
+  VIF=null;
+  if(QUAD){var cols=P.map(function(p){return [p.a,p.b,p.a*p.b,p.a*p.a,p.b*p.b]}),m=5,N=P.length,mu=[],sd=[],C=[];
+    for(j=0;j<m;j++){mu[j]=0;cols.forEach(function(r){mu[j]+=r[j]/N});sd[j]=0;cols.forEach(function(r){sd[j]+=(r[j]-mu[j])*(r[j]-mu[j])});sd[j]=Math.sqrt(sd[j])}
+    for(i=0;i<m;i++){C[i]=[];for(j=0;j<m;j++){C[i][j]=0;cols.forEach(function(r){C[i][j]+=(r[i]-mu[i])*(r[j]-mu[j])});C[i][j]/=sd[i]*sd[j]}}
+    VIF=inv(C)[3][3]}}
+function rotatable(){return show().ax&&Math.abs(st.al-ROT)<0.012}
+var DL=100,DT=14,DS=616;
+function dX(a){return DL+(a+R)/(2*R)*DS} function dY(b){return DT+(R-b)/(2*R)*DS}
+function axes(x,L,T,S){var ink=css("--ink"),muted=css("--muted");x.strokeStyle=ink;x.lineWidth=2;x.strokeRect(L,T,S,S);
+  x.font="20px "+FONT;x.fillStyle=muted;
+  [-1.5,-1,-0.5,0,0.5,1,1.5].forEach(function(v){var px=L+(v+R)/(2*R)*S,py=T+(R-v)/(2*R)*S;
+    x.textAlign="center";x.textBaseline="top";x.fillText(de(v,1),px,T+S+8);x.textAlign="right";x.textBaseline="middle";x.fillText(de(v,1),L-10,py)})}
+function drawDes(){
+  var c=$("des"),x=c.getContext("2d"),ink=css("--ink"),line=css("--line"),tl=css("--teal"),or=css("--orange"),muted=css("--muted");
+  x.clearRect(0,0,c.width,c.height);
+  x.strokeStyle=line;x.lineWidth=1;[-1.5,-1,-0.5,0,0.5,1,1.5].forEach(function(v){x.beginPath();x.moveTo(dX(v),DT);x.lineTo(dX(v),DT+DS);x.moveTo(DL,dY(v));x.lineTo(DL+DS,dY(v));x.stroke()});
+  axes(x,DL,DT,DS);
+  x.fillStyle=ink;x.font="600 22px "+FONT;x.textAlign="center";x.textBaseline="top";x.fillText("Faktor A (kodiert)",DL+DS/2,DT+DS+40);
+  x.save();x.translate(24,DT+DS/2);x.rotate(-Math.PI/2);x.fillText("Faktor B (kodiert)",0,0);x.restore();
+  x.setLineDash([9,7]);x.strokeStyle=ink;x.lineWidth=2;x.strokeRect(dX(-1),dY(1),dX(1)-dX(-1),dY(-1)-dY(1));
+  var sh=show(),k=st.ins?1/st.al:1;
+  if(sh.ax&&st.al>1.02){x.strokeStyle=muted;x.lineWidth=1.5;x.beginPath();x.arc(dX(0),dY(0),(dX(st.al*k)-dX(0)),0,7);x.stroke()}
+  x.setLineDash([]);
+  var P=pts();
+  if(sh.ax){x.strokeStyle=or;x.lineWidth=2;P.filter(function(p){return p.t==="s"}).forEach(function(p){x.beginPath();x.moveTo(dX(0),dY(0));x.lineTo(dX(p.a),dY(p.b));x.stroke()})}
+  P.forEach(function(p){if(p.t==="c")return;x.beginPath();x.arc(dX(p.a),dY(p.b),14,0,7);x.fillStyle=p.t==="f"?tl:or;x.fill();x.lineWidth=3;x.strokeStyle=css("--panel");x.stroke()});
+  if(sh.cen){x.beginPath();x.arc(dX(0),dY(0),15,0,7);x.fillStyle=css("--panel");x.fill();x.lineWidth=4;x.strokeStyle=ink;x.stroke();
+    x.fillStyle=ink;x.font="600 22px "+FONT;x.textAlign="left";x.textBaseline="bottom";x.fillText(st.nc+"×",dX(0)+20,dY(0)-12)}
+  if(sh.ax){x.fillStyle=or;x.font="600 21px "+FONT;x.textAlign="center";x.textBaseline="bottom";x.fillText("α = "+de(st.al,2),dX(0),dY(st.al*k)-20)}
+}
+var SL=250,ST=10,SS=480,off=document.createElement("canvas");off.width=G;off.height=G;
+function drawSem(){
+  var c=$("sem"),x=c.getContext("2d"),ink=css("--ink"),muted=css("--muted");
+  var lo=rgb(css("--map-lo")),hi=rgb(css("--map-hi"));
+  x.clearRect(0,0,c.width,c.height);
+  var o=off.getContext("2d"),im=o.createImageData(G,G);
+  for(var i=0;i<G*G;i++){var v=se[i],band=Math.floor(v/0.1)*0.1,t=Math.min(1,Math.max(0,(band-0.3)/1.3)),col=mix(lo,hi,t);
+    im.data[i*4]=col[0];im.data[i*4+1]=col[1];im.data[i*4+2]=col[2];im.data[i*4+3]=255}
+  o.putImageData(im,0,0);x.imageSmoothingEnabled=false;x.drawImage(off,SL,ST,SS,SS);
+  axes(x,SL,ST,SS);
+  function X(a){return SL+(a+R)/(2*R)*SS} function Y(b){return ST+(R-b)/(2*R)*SS}
+  x.setLineDash([8,6]);x.strokeStyle=ink;x.lineWidth=2;x.strokeRect(X(-1),Y(1),X(1)-X(-1),Y(-1)-Y(1));x.setLineDash([]);
+  pts().forEach(function(p){x.beginPath();x.arc(X(p.a),Y(p.b),6,0,7);x.fillStyle=css("--panel");x.fill();x.lineWidth=2;x.strokeStyle=ink;x.stroke()});
+  /* Farbskala */
+  var lx=SL+SS+36,lw=26,lh=300,ly=ST+90;for(var q=0;q<13;q++){var cc=mix(lo,hi,q/13);x.fillStyle="rgb("+Math.round(cc[0])+","+Math.round(cc[1])+","+Math.round(cc[2])+")";x.fillRect(lx,ly+lh-(q+1)*lh/13,lw,lh/13+1)}
+  x.strokeStyle=ink;x.lineWidth=1.5;x.strokeRect(lx,ly,lw,lh);x.font="19px "+FONT;x.fillStyle=muted;x.textAlign="left";x.textBaseline="middle";
+  x.fillText("1,6",lx+lw+8,ly);x.fillText("0,9",lx+lw+8,ly+lh/2);x.fillText("0,3",lx+lw+8,ly+lh);
+  x.fillStyle=ink;x.font="600 19px "+FONT;x.textBaseline="bottom";x.fillText("Standardfehler",lx-10,ly-12);
+}
+function say(){var r=rotatable(),out=!st.ins&&st.al>1.02;
+  switch(st.step){
+    case 0:return "Der Kern ist ein 2²-Design: 4 Runs an den Ecken. Damit lassen sich die Haupteffekte und die Wechselwirkung schätzen. Krümmung ist unsichtbar, und für den Fehler bleibt kein Freiheitsgrad.";
+    case 1:return "Dazu kommen "+st.nc+" Center Points. Die Wiederholungen liefern den reinen Fehler, und der Vergleich Mitte gegen Ecken zeigt, ob es Krümmung gibt. Welcher Faktor sich krümmt, bleibt noch offen.";
+    case 2:return "Dazu kommen 4 Sternpunkte, hier auf den Kanten (α = 1, face-centered). Jeder Faktor hat jetzt 3 Stufen, das quadratische Modell ist schätzbar. Alle Punkte bleiben im Bereich ±1.";
+    case 3:return "Rücken die Sternpunkte nach außen auf α = 1,41, liegen alle äußeren Punkte auf einem Kreis. Die Karte rechts wird rund: Der Standardfehler hängt nur noch vom Abstand zur Mitte ab. Das Design ist rotierbar, braucht aber 5 Stufen und Einstellungen außerhalb von ±1.";
+    default:
+      var s=st.ins?"Eingeschrieben: Die Sternpunkte liegen auf ±1, die Eckpunkte rücken nach innen auf ±"+de(1/st.al,2)+". ":(out?"Die Sternpunkte liegen bei ±"+de(st.al,2)+", also außerhalb der Eckpunkte. Sind diese Einstellungen machbar? ":"Face-centered: Alle Punkte bleiben im Bereich ±1, jeder Faktor hat 3 Stufen. ");
+      return s+(r?"Mit α = 1,41 ist das Design rotierbar.":"Rotierbar wäre es bei α = 1,41.")+" VIF der quadratischen Terme: "+de(VIF,2)+".";
+  }}
+function yn(id,v){$(id).innerHTML=v?'<span class="yes">ja</span>':'<span class="no">nein</span>'}
+function render(){FONT=css("--font");var sh=show(),P=pts();
+  $("al").value=st.al;$("nc").value=st.nc;$("ins").checked=st.ins;$("alOut").textContent=de(st.al,2);$("ncOut").textContent=st.nc;
+  $("say").textContent=say();
+  $("stepno").textContent=st.step<LAST?"Schritt "+(st.step+1)+" von "+(LAST+1):"freier Modus";
+  $("back").disabled=st.step===0;$("next").disabled=st.step===LAST;
+  $("semsub").textContent=(QUAD?"Für das quadratische Modell.":"Für das Modell mit Haupteffekten und Wechselwirkung.")+" Dunkler = ungenauer. Punkte: die Runs.";
+  yn("c1",true);yn("c2",sh.cen);yn("c3",sh.ax);yn("c4",rotatable());
+  $("n1").textContent=P.length;$("n2").textContent=!sh.ax?(sh.cen?"3":"2"):(Math.abs(st.al-1)<0.005?"3":"5");
+  $("n3").textContent=VIF?de(VIF,2):"–";var kk=st.ins?1/st.al:1;$("n4").textContent=de(seAt(0,0),2)+" / "+de(seAt(kk,kk),2);
+  drawDes();drawSem()}
+var raf=0;
+function tweenAl(to){cancelAnimationFrame(raf);var from=st.al,t0=0;
+  if(Math.abs(from-to)<0.005||(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)){st.al=to;build();render();return}
+  function tick(ts){if(!t0)t0=ts;var p=Math.min(1,(ts-t0)/1500),e=0.5-0.5*Math.cos(Math.PI*p);st.al=from+(to-from)*e;if(p>=1)st.al=to;build();render();if(p<1)raf=requestAnimationFrame(tick)}
+  raf=requestAnimationFrame(tick)}
+function go(n){st.step=Math.max(0,Math.min(LAST,n));st.ins=false;
+  if(st.step<=2){cancelAnimationFrame(raf);st.al=1;build();render()}else if(st.step===3)tweenAl(ROT);else{build();render()}}
+$("al").addEventListener("input",function(e){cancelAnimationFrame(raf);st.al=+e.target.value;st.step=LAST;build();render()});
+$("nc").addEventListener("input",function(e){st.nc=+e.target.value;if(st.step<1)st.step=1;build();render()});
+$("ins").addEventListener("change",function(e){cancelAnimationFrame(raf);st.ins=e.target.checked;st.step=LAST;if(st.ins&&st.al<1.05)st.al=ROT;build();render()});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){st.nc=5;go(0)});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+window.a6Set=function(o){for(var k in o)st[k]=o[k];build();render()};
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+build();render();
+})();
+</script>
+</body>
+</html>

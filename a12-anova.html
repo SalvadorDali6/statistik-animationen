@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ANOVA-Zerlegung</title>
+<style>
+/* Plan: A12, links die Zerlegung der Streuung als Balken und die Terme zum An- und Abwaehlen, rechts die ANOVA-Tabelle. Tuerkis = Modell, Orange = Fehler. Vorlage A8: links die Messwerte zweier Einstellungen, rechts der t-Wert gegen seine Grenze, darunter die Kennzahlen. Tuerkis = Signal, Orange = Rauschen. Vorlage: Flaeche in 3D links, Wechselwirkungsdiagramm rechts, 5 Regler fuer die Modellterme. Basis: Statussatz zum Vorlesen,
+   zwei gekoppelte Grafiken. Tuerkis = genau genug, Orange = die Anforderung (Schwelle), Grau = Rest. */
+:root{
+  --bg:#f7f8f8; --panel:#ffffff; --ink:#1d2430; --muted:#667080; --line:#dfe3e6;
+  --teal:#0f8a80; --teal-soft:#cfeae6; --orange:#d9730d; --ok:#1f7a4d; --bad:#b3372f;
+  --map-lo:#eef3f3; --map-hi:#2f7f78; --star:#b3372f;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+    --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+    --map-lo:#262c31; --map-hi:#4fc9bd; --star:#ef8a80;}
+}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+  --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+  --map-lo:#262c31; --map-hi:#4fc9bd; --star:#ef8a80;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:17px;line-height:1.4;padding:16px clamp(16px,3vw,36px) 20px;max-width:1480px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.55rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto 1fr;gap:14px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--teal-soft);border-color:var(--teal);color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.85rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.sliders{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));gap:10px 24px}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:.95rem}
+.ctl output{font-variant-numeric:tabular-nums;color:var(--orange)}
+input[type=range]{width:100%;accent-color:var(--orange);margin:4px 0 0;height:20px}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--teal);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:76px}
+.status p{margin:0;font-size:1.12rem;max-width:95ch}
+.nums{display:flex;gap:26px}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.78rem;white-space:nowrap}
+.nums .v{font-size:1.35rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font-size:.8rem;font-weight:600;border-radius:999px;padding:1px 9px;margin-left:6px;vertical-align:middle;border:1.5px solid currentColor}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--bad)}
+.plots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 6px;min-width:0}
+.card h2{font-size:1rem;font-weight:650;margin:0}
+.cardhead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cardhead button{padding:3px 10px;font-size:.85rem}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.card p{margin:1px 0 4px;color:var(--muted);font-size:.86rem}
+canvas{display:block;width:100%;height:auto;touch-action:none}
+#bar{aspect-ratio:900/300}
+.plots{grid-template-columns:1fr 1fr}
+.formula{margin:6px 0 0;font-size:1.05rem;font-variant-numeric:tabular-nums}
+.formula span{white-space:nowrap}
+.formula .off{color:var(--muted);opacity:.55}
+.formula b{font-weight:650}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;margin-top:6px}
+th,td{text-align:right;padding:6px 8px;border-top:1px solid var(--line)}
+th{font-size:.78rem;color:var(--muted);font-weight:600;border-top:0}
+th:first-child,td:first-child{text-align:left}
+.sw{display:inline-block;width:26px;height:4px;border-radius:2px;margin-right:8px;vertical-align:middle}
+@media (max-width:860px){.bar,.status{grid-template-columns:1fr}.sliders,.plots{grid-template-columns:1fr}.nums div{text-align:left}}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:7px 14px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.terms{display:grid;grid-template-columns:auto 1fr auto;gap:2px 12px;align-items:center;margin-top:8px;font-variant-numeric:tabular-nums}
+.terms label{display:flex;align-items:center;gap:8px;font-weight:600;white-space:nowrap;cursor:pointer}
+.terms input{width:20px;height:20px;accent-color:var(--teal)}
+.terms .track{height:14px;background:var(--line);border-radius:4px;overflow:hidden}
+.terms .fill{height:100%;background:var(--teal)}
+.terms .off .fill{background:var(--orange)}
+.terms .off{color:var(--muted)}
+.terms .v{text-align:right;min-width:72px}
+.terms .lock{opacity:.45}
+td.sig{color:var(--ok);font-weight:650}
+tr.gone td{color:var(--muted)}
+tr.tot td{border-top:2px solid var(--ink);font-weight:650}
+tr.err td{color:var(--orange);font-weight:650}
+td.q{font-weight:700;color:var(--bad)}
+.acct{margin:10px 0 0;font-size:.95rem;color:var(--muted)}
+.acct b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Was erklärt das Modell, was bleibt Fehler?</h1>
+    <p class="sub">2³ Full Factorial mit Temperatur, Zeit und Katalysator. Ausbeute in %.</p>
+  </div>
+  <button id="full" type="button">Vollbild</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Zurück</button>
+    <button id="next" type="button" class="primary">Weiter</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="sliders" style="grid-template-columns:auto minmax(220px,1fr)">
+    <div class="ctl"><label>Replikate</label>
+      <div class="seg" role="group" aria-label="Replikate"><button id="r1" type="button">1 (8 Runs)</button><button id="r2" type="button">2 (16 Runs)</button></div></div>
+    <div class="ctl"><label for="sig">Rauschen: Streuung σ <output id="sigOut"></output></label><input id="sig" type="range" min="0.45" max="10" step="0.05"></div>
+  </div>
+</div>
+
+<div class="status" style="grid-template-columns:1fr">
+  <div>
+    <p id="say"></p>
+    <p class="formula" id="formula"></p>
+  </div>
+</div>
+
+<div class="plots">
+  <div class="card">
+    <h2>Zerlegung der Streuung (Sum of Squares)</h2>
+    <p>Der ganze Balken ist SS Total. <span style="color:var(--teal);font-weight:650">Türkis</span>: erklärt das Modell. <span style="color:var(--orange);font-weight:650">Orange</span>: bleibt als Fehler (Error).</p>
+    <canvas id="bar" width="900" height="300"></canvas>
+    <p style="margin-top:10px">Häkchen = Term ist im Modell. Ohne Häkchen wandert seine Streuung in den Fehler.</p>
+    <div class="terms" id="terms"></div>
+  </div>
+  <div class="card">
+    <h2>ANOVA-Tabelle</h2>
+    <p>Signifikant bei p &lt; 0,05 (grün). „?“: kein Freiheitsgrad für den Fehler, also kein Test möglich.</p>
+    <table>
+      <thead><tr><th>Source</th><th>df</th><th>SS</th><th>MS</th><th>F</th><th>p</th></tr></thead>
+      <tbody id="tab"></tbody>
+    </table>
+    <p class="acct" id="acct"></p>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+function lcg(seed){var s=seed>>>0;return function(){s=(s*1664525+1013904223)>>>0;return s/4294967296}}
+function normals(seed,n){var r=lcg(seed),o=[];for(var i=0;i<n;i++){var u=1-r(),v=r();o.push(Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v))}return o}
+var XT=[-1,-1,1,-1,1,-1,1,1],Xt=[1,1,-1,-1,-1,-1,1,1],XC=[1,-1,-1,-1,1,1,1,-1];
+var Y0=[51.8,48.82,86.17,25.82,89.65,28.76,56.54,54.58];
+var TERMS=[{k:"T",n:"Temperatur",f:[1,0,0]},{k:"t",n:"Zeit",f:[0,1,0]},{k:"C",n:"Katalysator",f:[0,0,1]},
+  {k:"Tt",n:"Temp × Zeit",f:[1,1,0]},{k:"TC",n:"Temp × Kat",f:[1,0,1]},{k:"tC",n:"Zeit × Kat",f:[0,1,1]},{k:"TtC",n:"Temp × Zeit × Kat",f:[1,1,1]}];
+function col(term,i){var v=1;if(term.f[0])v*=XT[i];if(term.f[1])v*=Xt[i];if(term.f[2])v*=XC[i];return v}
+var MU=[],E=[];for(var i=0;i<8;i++){MU[i]=55.266961+16.468255*XT[i]-2.332792*Xt[i]+1.4193271*XC[i]-13.84239*XT[i]*Xt[i];E[i]=Y0[i]-MU[i]}
+var S0=Math.sqrt(E.reduce(function(a,b){return a+b*b},0)/3);
+function lgam(x){var cf=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.001208650973866179,-0.000005395239384953],y=x,t=x+5.5,s=1.000000000190015;
+  t-=(x+0.5)*Math.log(t);for(var j=0;j<6;j++){y+=1;s+=cf[j]/y}return -t+Math.log(2.5066282746310005*s/x)}
+function betacf(a,b,x){var qab=a+b,qap=a+1,qam=a-1,c=1,d=1-qab*x/qap,h,m,m2,aa,del;if(Math.abs(d)<1e-30)d=1e-30;d=1/d;h=d;
+  for(m=1;m<=300;m++){m2=2*m;aa=m*(b-m)*x/((qam+m2)*(a+m2));d=1+aa*d;if(Math.abs(d)<1e-30)d=1e-30;c=1+aa/c;if(Math.abs(c)<1e-30)c=1e-30;d=1/d;h*=d*c;
+    aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));d=1+aa*d;if(Math.abs(d)<1e-30)d=1e-30;c=1+aa/c;if(Math.abs(c)<1e-30)c=1e-30;d=1/d;del=d*c;h*=del;if(Math.abs(del-1)<3e-10)break}return h}
+function ibeta(a,b,x){if(x<=0)return 0;if(x>=1)return 1;var bt=Math.exp(lgam(a+b)-lgam(a)-lgam(b)+a*Math.log(x)+b*Math.log(1-x));
+  return x<(a+1)/(a+b+2)?bt*betacf(a,b,x)/a:1-bt*betacf(b,a,1-x)/b}
+function pF(F,d1,d2){return ibeta(d2/2,d1/2,d2/(d2+d1*F))}
+function anova(rep,sig,inModel,Z){var Y=[],cols=TERMS.map(function(){return []}),i,j;
+  for(var r=0;r<rep;r++)for(i=0;i<8;i++){Y.push(r===0?MU[i]+sig/S0*E[i]:MU[i]+sig*Z[i]);TERMS.forEach(function(tm,j){cols[j].push(col(tm,i))})}
+  var N=Y.length,mean=Y.reduce(function(a,b){return a+b},0)/N,sst=Y.reduce(function(a,b){return a+(b-mean)*(b-mean)},0);
+  var ss=cols.map(function(c){var s=0;for(var i=0;i<N;i++)s+=c[i]*Y[i];return s*s/N});
+  var ssm=0,dfm=0;TERMS.forEach(function(tm,j){if(inModel[tm.k]){ssm+=ss[j];dfm++}});
+  var sse=Math.max(0,sst-ssm),dfe=N-1-dfm,mse=dfe>0?sse/dfe:NaN;
+  var rows=TERMS.map(function(tm,j){var F=dfe>0?ss[j]/mse:NaN;return {k:tm.k,n:tm.n,ss:ss[j],on:!!inModel[tm.k],F:F,p:dfe>0&&inModel[tm.k]?pF(F,1,dfe):NaN}});
+  var Fm=dfe>0&&dfm>0?(ssm/dfm)/mse:NaN;
+  return {N:N,sst:sst,ssm:ssm,sse:sse,dfm:dfm,dfe:dfe,mse:mse,rows:rows,Fm:Fm,pm:dfe>0&&dfm>0?pF(Fm,dfm,dfe):NaN,r2:sst>0?ssm/sst:0}}
+
+var $=function(id){return document.getElementById(id)};
+var SEED=17,Z=normals(SEED,8),LAST=5,FONT;
+var ALL={T:1,t:1,C:1,Tt:1,TC:1,tC:1,TtC:1};
+function copy(o){var r={};for(var k in o)r[k]=o[k];return r}
+var PRE=[{rep:1,sig:S0,m:copy(ALL)},{rep:1,sig:S0,m:{T:1,t:1,C:1,Tt:1,TC:1,tC:1}},{rep:1,sig:S0,m:{T:1,t:1,C:1,Tt:1}},
+  {rep:2,sig:S0,m:copy(ALL)},{rep:2,sig:6,m:copy(ALL)}];
+var st={step:0,rep:1,sig:S0,m:copy(ALL)};
+function de(x,k){if(!isFinite(x))return "–";var t=x.toFixed(k);if(/^-0[.,]?0*$/.test(t))t=t.slice(1);return t.replace(".",",")}
+function fmt(v){var a=Math.abs(v);return a>=100?de(v,1):a>=1?de(v,2):de(v,3)}
+function fp(p){return !isFinite(p)?"?":p<0.001?"< 0,001":de(p,3)}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+/* Hierarchie: Wechselwirkung nur mit allen enthaltenen niedrigeren Termen */
+function allowed(tm){if(tm.f.reduce(function(a,b){return a+b},0)<2)return true;
+  return TERMS.every(function(o){var sub=o.f.every(function(v,i){return v<=tm.f[i]})&&o.k!==tm.k;return !sub||st.m[o.k]})}
+function enforce(){var ch=true;while(ch){ch=false;TERMS.forEach(function(tm){if(st.m[tm.k]&&!allowed(tm)){delete st.m[tm.k];ch=true}})}}
+function buildTerms(){var box=$("terms");box.innerHTML="";
+  TERMS.forEach(function(tm){var lab=document.createElement("label"),cb=document.createElement("input");cb.type="checkbox";cb.id="cb_"+tm.k;
+    cb.addEventListener("change",function(){if(cb.checked)st.m[tm.k]=1;else delete st.m[tm.k];enforce();st.step=LAST;render()});
+    lab.htmlFor=cb.id;lab.appendChild(cb);lab.appendChild(document.createTextNode(tm.n));lab.id="lb_"+tm.k;
+    var tr=document.createElement("div");tr.className="track";tr.id="tr_"+tm.k;var fi=document.createElement("div");fi.className="fill";fi.id="fi_"+tm.k;tr.appendChild(fi);
+    var v=document.createElement("div");v.className="v";v.id="v_"+tm.k;box.appendChild(lab);box.appendChild(tr);box.appendChild(v)})}
+var BL=20,BR=20,BW=860;
+function drawBar(a){
+  var c=$("bar"),x=c.getContext("2d"),ink=css("--ink"),muted=css("--muted"),tl=css("--teal"),or=css("--orange"),pn=css("--panel");
+  x.clearRect(0,0,c.width,c.height);FONT=css("--font");
+  var Y=70,H=90,X=BL,sc=BW/a.sst;
+  var segs=a.rows.filter(function(r){return r.on}).sort(function(u,w){return w.ss-u.ss});
+  segs.forEach(function(r,i){var w=r.ss*sc;x.fillStyle=tl;x.globalAlpha=i%2?0.72:1;x.fillRect(X,Y,w,H);x.globalAlpha=1;
+    x.strokeStyle=pn;x.lineWidth=2;x.beginPath();x.moveTo(X+w,Y);x.lineTo(X+w,Y+H);x.stroke();
+    if(w>110){x.fillStyle="#fff";x.font="600 21px "+FONT;x.textAlign="center";x.textBaseline="middle";x.fillText(r.n,X+w/2,Y+H/2-12);x.font="20px "+FONT;x.fillText(fmt(r.ss),X+w/2,Y+H/2+14)}
+    X+=w});
+  var we=a.sse*sc;x.fillStyle=or;x.fillRect(X,Y,Math.max(we,0),H);
+  x.strokeStyle=ink;x.lineWidth=2;x.strokeRect(BL,Y,BW,H);
+  /* Klammern oben */
+  function brace(x0,x1,txt,col){x.strokeStyle=col;x.lineWidth=2.5;x.beginPath();x.moveTo(x0,Y-10);x.lineTo(x0,Y-22);x.lineTo(x1,Y-22);x.lineTo(x1,Y-10);x.stroke();
+    x.fillStyle=col;x.font="600 21px "+FONT;x.textBaseline="bottom";var tw=x.measureText(txt).width,mx=(x0+x1)/2;
+    x.textAlign="center";x.fillText(txt,Math.min(Math.max(mx,BL+tw/2),BL+BW-tw/2),Y-28)}
+  brace(BL,BL+a.ssm*sc,"SS Modell "+fmt(a.ssm)+" ("+de(a.r2*100,1)+" %)",tl);
+  /* Fehler: Pfeil, auch wenn winzig */
+  var ex=BL+a.ssm*sc+we/2;x.strokeStyle=or;x.fillStyle=or;x.lineWidth=2.5;
+  x.beginPath();x.moveTo(ex,Y+H+8);x.lineTo(ex,Y+H+44);x.stroke();x.beginPath();x.moveTo(ex,Y+H+6);x.lineTo(ex-8,Y+H+20);x.lineTo(ex+8,Y+H+20);x.closePath();x.fill();
+  x.font="600 21px "+FONT;x.textBaseline="top";var et="SS Fehler "+fmt(a.sse)+" ("+de((1-a.r2)*100,1)+" %), "+a.dfe+" df";
+  var tw=x.measureText(et).width;x.textAlign="left";x.fillText(et,Math.min(Math.max(ex-tw/2,BL),BL+BW-tw),Y+H+50);
+  x.fillStyle=muted;x.font="20px "+FONT;x.textAlign="right";x.textBaseline="top";x.fillText("SS Total "+fmt(a.sst),BL+BW,Y+H+84);
+}
+function table(a){
+  var h="",md=a.rows.filter(function(r){return r.on});
+  h+='<tr><td><b>Modell</b></td><td>'+a.dfm+'</td><td>'+fmt(a.ssm)+'</td><td>'+(a.dfm?fmt(a.ssm/a.dfm):"–")+'</td><td>'+(isFinite(a.Fm)?de(a.Fm,1):"–")+'</td><td class="'+(!isFinite(a.pm)&&a.dfm?"q":(a.pm<0.05?"sig":""))+'">'+(a.dfm?fp(a.pm):"–")+'</td></tr>';
+  a.rows.forEach(function(r){if(!r.on)return;var cls=!isFinite(r.p)?"q":(r.p<0.05?"sig":"");
+    h+='<tr><td>&nbsp;&nbsp;'+r.n+'</td><td>1</td><td>'+fmt(r.ss)+'</td><td>'+fmt(r.ss)+'</td><td>'+(isFinite(r.F)?de(r.F,1):"–")+'</td><td class="'+cls+'">'+fp(r.p)+'</td></tr>'});
+  h+='<tr class="err"><td>Fehler (Error)</td><td>'+a.dfe+'</td><td>'+fmt(a.sse)+'</td><td>'+(a.dfe>0?fmt(a.mse):"–")+'</td><td></td><td></td></tr>';
+  h+='<tr class="tot"><td>Gesamt (C. Total)</td><td>'+(a.N-1)+'</td><td>'+fmt(a.sst)+'</td><td></td><td></td><td></td></tr>';
+  var gone=a.rows.filter(function(r){return !r.on});
+  if(gone.length)h+='<tr class="gone"><td colspan="6">Im Fehler enthalten: '+gone.map(function(r){return r.n+" ("+fmt(r.ss)+")"}).join(", ")+'</td></tr>';
+  $("tab").innerHTML=h;
+  var pure=st.rep===2?8:0;
+  $("acct").innerHTML="Freiheitsgrade: "+a.N+" Runs − 1 = <b>"+(a.N-1)+"</b>. Davon Modell <b>"+a.dfm+"</b>, Fehler <b>"+a.dfe+"</b>"+(a.dfe>0?" ("+(pure?pure+" aus den Wiederholungen":"")+(pure&&a.dfe>pure?" + ":"")+(a.dfe>pure?(a.dfe-pure)+" aus gestrichenen Termen":"")+")":"")+".";
+}
+function say(a){var sigT=a.rows.filter(function(r){return r.on&&r.p<0.05}).map(function(r){return r.n});
+  switch(st.step){
+    case 0:return "2³-Design ohne Wiederholung, volles Modell mit allen 7 Termen. 8 Runs geben 7 Freiheitsgrade, alle gehen ans Modell. Die Koeffizienten lassen sich berechnen, aber für den Fehler bleibt nichts: 0 df, kein p-Wert.";
+    case 1:return "Die 3-fach-Wechselwirkung erklärt fast nichts (SS "+fmt(a.rows[6].ss)+"). Wir nehmen sie aus dem Modell, ihre Streuung wird zum Fehler. Mit 1 df für den Fehler gibt es jetzt p-Werte. Die SS der anderen Terme bleiben gleich.";
+    case 2:return "Auch Temp × Kat und Zeit × Kat erklären kaum etwas. Ohne sie hat der Fehler 3 df, und die Tests werden schärfer: Signifikant sind "+sigT.join(", ")+".";
+    case 3:return "Mit Replikaten: Jeder Run wird wiederholt, 16 Runs. Das volle Modell braucht 7 df, 8 df bleiben für den reinen Fehler aus den Wiederholungen (pure error). p-Werte gibt es jetzt auch ohne Terme zu streichen.";
+    case 4:return "Jetzt streuen die Wiederholungen stärker. SS Fehler wächst im Vergleich zu SS Modell ("+de((1-a.r2)*100,1)+" % statt fast 0 %). Zeit und Katalysator gehen im Rauschen unter. Signifikant bleiben "+(sigT.length?sigT.join(", "):"keine Terme")+".";
+    default:return a.dfe>0?"Signifikant (p < 0,05): "+(sigT.length?sigT.join(", "):"keine Terme")+". Das Modell erklärt "+de(a.r2*100,1)+" % der Streuung.":"Kein Freiheitsgrad für den Fehler: Die Koeffizienten sind berechnet, ein Test ist nicht möglich. Streiche einen Term oder nimm 2 Replikate.";
+  }}
+function render(){FONT=css("--font");enforce();var a=anova(st.rep,st.sig,st.m,Z);
+  $("sig").value=st.sig;$("sigOut").textContent=Math.abs(st.sig-S0)<0.01?de(S0,2)+" (Folie)":de(st.sig,2);
+  $("r1").setAttribute("aria-pressed",st.rep===1?"true":"false");$("r2").setAttribute("aria-pressed",st.rep===2?"true":"false");
+  $("say").textContent=say(a);
+  $("formula").innerHTML="SS Total = SS Modell + SS Fehler: <b>"+fmt(a.sst)+"</b> = <b>"+fmt(a.ssm)+"</b> + <b>"+fmt(a.sse)+"</b> &nbsp;&nbsp; R² = <b>"+de(a.r2,3)+"</b>";
+  $("stepno").textContent=st.step<LAST?"Schritt "+(st.step+1)+" von "+(LAST+1):"freier Modus";
+  $("back").disabled=st.step===0;$("next").disabled=st.step===LAST;
+  TERMS.forEach(function(tm,j){var r=a.rows[j],cb=$("cb_"+tm.k),ok=allowed(tm);cb.checked=!!st.m[tm.k];cb.disabled=!ok&&!st.m[tm.k];
+    $("lb_"+tm.k).className=(r.on?"":"off")+(cb.disabled?" lock":"");$("tr_"+tm.k).className="track"+(r.on?"":" off");
+    $("tr_"+tm.k).parentNode;$("fi_"+tm.k).style.width=Math.max(0.4,r.ss/a.sst*100)+"%";$("fi_"+tm.k).style.background=r.on?"":"var(--orange)";
+    $("v_"+tm.k).textContent=fmt(r.ss)});
+  drawBar(a);table(a)}
+var raf=0;
+function tweenSig(to){cancelAnimationFrame(raf);var from=st.sig,t0=0;
+  if(Math.abs(to-from)<0.01||(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)){st.sig=to;render();return}
+  function tick(ts){if(!t0)t0=ts;var p=Math.min(1,(ts-t0)/1400),e=0.5-0.5*Math.cos(Math.PI*p);st.sig=from+(to-from)*e;if(p>=1)st.sig=to;render();if(p<1)raf=requestAnimationFrame(tick)}
+  raf=requestAnimationFrame(tick)}
+function go(n){st.step=Math.max(0,Math.min(LAST,n));if(st.step===LAST){render();return}var p=PRE[st.step];st.rep=p.rep;st.m=copy(p.m);tweenSig(p.sig)}
+$("sig").addEventListener("input",function(e){cancelAnimationFrame(raf);st.sig=+e.target.value;st.step=LAST;render()});
+$("r1").addEventListener("click",function(){st.rep=1;st.step=LAST;render()});
+$("r2").addEventListener("click",function(){st.rep=2;st.step=LAST;render()});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){cancelAnimationFrame(raf);st.sig=S0;go(0)});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+window.a12Set=function(step){cancelAnimationFrame(raf);st.step=step;var p=PRE[Math.min(step,4)];st.rep=p.rep;st.sig=p.sig;st.m=copy(p.m);render()};
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+buildTerms();render();
+})();
+</script>
+</body>
+</html>

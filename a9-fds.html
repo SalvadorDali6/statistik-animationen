@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FDS Schritt für Schritt</title>
+<style>
+/* Plan: gefuehrte Geschichte in 6 Schritten, danach freier Modus. Statussatz zum Vorlesen,
+   zwei gekoppelte Grafiken. Tuerkis = genau genug, Orange = die Anforderung (Schwelle), Grau = Rest. */
+:root{
+  --bg:#f7f8f8; --panel:#ffffff; --ink:#1d2430; --muted:#667080; --line:#dfe3e6;
+  --teal:#0f8a80; --teal-soft:#cfeae6; --orange:#d9730d; --ok:#1f7a4d; --bad:#b3372f;
+  --map-lo:#f1f3f4; --map-hi:#8b929b;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+    --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+    --map-lo:#2a2f35; --map-hi:#0c0e10;}
+}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+  --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+  --map-lo:#2a2f35; --map-hi:#0c0e10;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:17px;line-height:1.4;padding:16px clamp(16px,3vw,36px) 20px;max-width:1480px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.55rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto 1fr;gap:14px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--teal-soft);border-color:var(--teal);color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.85rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.sliders{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px 22px}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:.95rem}
+.ctl output{font-variant-numeric:tabular-nums;color:var(--orange)}
+input[type=range]{width:100%;accent-color:var(--orange);margin:4px 0 0;height:20px}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--teal);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:76px}
+.status p{margin:0;font-size:1.12rem;max-width:75ch}
+.nums{display:flex;gap:26px}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.78rem;white-space:nowrap}
+.nums .v{font-size:1.35rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font-size:.8rem;font-weight:600;border-radius:999px;padding:1px 9px;margin-left:6px;vertical-align:middle;border:1.5px solid currentColor}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--bad)}
+.plots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 6px;min-width:0}
+.card h2{font-size:1rem;font-weight:650;margin:0}
+.cardhead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cardhead button{padding:3px 10px;font-size:.85rem}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.card p{margin:1px 0 4px;color:var(--muted);font-size:.86rem}
+canvas{display:block;width:100%;height:auto;aspect-ratio:900/720;touch-action:none}
+@media (max-width:860px){.bar,.status{grid-template-columns:1fr}.sliders,.plots{grid-template-columns:1fr}.nums div{text-align:left}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Fraction of Design Space: Wie viel vom Versuchsraum ist genau genug?</h1>
+    <p class="sub">Face-centered CCD, 2 Faktoren, quadratisches Modell.</p>
+  </div>
+  <button id="full" type="button">Vollbild</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Zurück</button>
+    <button id="next" type="button" class="primary">Weiter</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="sliders">
+    <div class="ctl"><label for="d">Präzision ± d <output id="dOut"></output></label>
+      <input id="d" type="range" min="0.3" max="1.5" step="0.01" value="0.8"></div>
+    <div class="ctl"><label for="s">Standardabweichung s <output id="sOut"></output></label>
+      <input id="s" type="range" min="0.2" max="1" step="0.01" value="0.5"></div>
+    <div class="ctl"><label for="nc">Center Points <output id="ncOut"></output></label>
+      <input id="nc" type="range" min="1" max="8" step="1" value="5"></div>
+    <div class="ctl"><label for="e">Replikate am Rand <output id="eOut"></output></label>
+      <input id="e" type="range" min="0" max="8" step="1" value="0"></div>
+  </div>
+</div>
+
+<div class="status">
+  <p id="say"></p>
+  <div class="nums">
+    <div><div class="k">Runs</div><div class="v" id="rN"></div></div>
+    <div><div class="k">erlaubter Standardfehler</div><div class="v" id="rThr"></div></div>
+    <div><div class="k">FDS (Ziel ≥ 80 %)</div><div class="v"><span id="rFds"></span><span id="rPill" class="pill"></span></div></div>
+  </div>
+</div>
+
+<div class="plots">
+  <div class="card">
+    <div class="cardhead"><h2>Standardfehler im Versuchsraum</h2><button id="v3" type="button" aria-pressed="false">3D-Ansicht</button></div>
+    <p id="mapsub"></p>
+    <canvas id="map" width="900" height="720"></canvas>
+  </div>
+  <div class="card">
+    <h2>FDS-Grafik</h2>
+    <p>Alle Stellen des Versuchsraums, sortiert nach Standardfehler. Die orange Linie lässt sich ziehen.</p>
+    <canvas id="fds" width="900" height="720" tabindex="0" aria-label="FDS-Grafik, Schwellenlinie mit der Maus ziehbar"></canvas>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var T={3:3.182,4:2.776,5:2.571,6:2.447,7:2.365,8:2.306,9:2.262,10:2.228,11:2.201,12:2.179,13:2.160,14:2.145,15:2.131,16:2.120,17:2.110,18:2.101};
+var EX=[[-1,-1],[1,1],[-1,1],[1,-1],[-1,0],[1,0],[0,-1],[0,1]];
+var DEF={d:0.8,s:0.5,nc:5,e:0},LAST=5;
+var G=110,se=new Float32Array(G*G),sorted=new Float32Array(G*G),MI=null,V3={on:false,az:-0.62};
+var st={d:0.8,s:0.5,nc:5,e:0,step:0,thr:0,fds:0,n:13,df:7,min:0,max:0};
+var $=function(id){return document.getElementById(id)};
+function de(x,k){return x.toFixed(k).replace(".",",")}
+function row(a,b){return [1,a,b,a*b,a*a,b*b]}
+function inv(A){var n=A.length,M=[],i,j,k;
+  for(i=0;i<n;i++){M[i]=A[i].slice();for(j=0;j<n;j++)M[i].push(i===j?1:0)}
+  for(i=0;i<n;i++){var p=i;for(k=i+1;k<n;k++)if(Math.abs(M[k][i])>Math.abs(M[p][i]))p=k;
+    var t=M[i];M[i]=M[p];M[p]=t;var piv=M[i][i];for(j=0;j<2*n;j++)M[i][j]/=piv;
+    for(k=0;k<n;k++)if(k!==i){var f=M[k][i];if(f!==0)for(j=0;j<2*n;j++)M[k][j]-=f*M[i][j]}}
+  return M.map(function(r){return r.slice(n)})}
+function design(nc){var D=[[-1,-1],[1,-1],[-1,1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];for(var i=0;i<nc;i++)D.push([0,0]);return D}
+function build(){
+  var D=design(st.nc).concat(EX.slice(0,st.e)),A=[],i,j,k;for(i=0;i<6;i++)A[i]=[0,0,0,0,0,0];
+  D.forEach(function(p){var r=row(p[0],p[1]);for(i=0;i<6;i++)for(j=0;j<6;j++)A[i][j]+=r[i]*r[j]});
+  var M=inv(A);MI=M;
+  for(i=0;i<G;i++)for(j=0;j<G;j++){var a=-1+2*(j+0.5)/G,b=1-2*(i+0.5)/G,r=row(a,b),v=0;
+    for(k=0;k<6;k++){var t=0;for(var m=0;m<6;m++)t+=M[k][m]*r[m];v+=r[k]*t}se[i*G+j]=Math.sqrt(v)}
+  sorted.set(se);sorted.sort();st.n=D.length;st.df=st.n-6;st.min=sorted[0];st.max=sorted[sorted.length-1]}
+function calc(){st.thr=st.d/(T[st.df]*st.s);
+  var lo=0,hi=sorted.length;while(lo<hi){var m=(lo+hi)>>1;if(sorted[m]<=st.thr)lo=m+1;else hi=m}st.fds=lo/sorted.length}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function rgb(h){h=h.replace("#","");return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)]}
+function mix(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}
+var FONT;
+var ML=110,MT=18,MS=610;                     /* Karte: links, oben, Seitenlaenge */
+var FL=110,FR=40,FT=18,FB=92,FW=900-FL-FR,FH=720-FT-FB; /* FDS-Grafik */
+function fY(v){return FT+FH-Math.min(v,1)*FH}
+function fX(f){return FL+f*FW}
+
+var off=document.createElement("canvas");off.width=G;off.height=G;
+function seAt(a,b){var r=row(a,b),v=0;for(var k=0;k<6;k++){var t=0;for(var m=0;m<6;m++)t+=MI[k][m]*r[m];v+=r[k]*t}return Math.sqrt(v)}
+function draw3d(){
+  var c=$("map"),x=c.getContext("2d"),ink=css("--ink"),muted=css("--muted"),line=css("--line"),or=css("--orange");
+  var lo=rgb(css("--map-lo")),hi=rgb(css("--map-hi")),tl=rgb(css("--teal")),ts=rgb(css("--teal-soft")),pn=rgb(css("--panel"));
+  var showSE=st.step>=1,showThr=st.step>=3,CX=450,CY=455,S=235,EL=0.5,HS=300,ca=Math.cos(V3.az),sa=Math.sin(V3.az);
+  function P(a,b,z){var xr=a*ca-b*sa,yr=a*sa+b*ca;return [CX+xr*S,CY+yr*S*EL-z*HS,yr]}
+  function col(v,soft){var t=Math.min(1,Math.max(0,(v-0.3)/0.6)),cc=(showThr&&v<=st.thr)?mix(ts,tl,0.1+0.5*t):mix(lo,hi,0.1+0.9*t);
+    if(soft)cc=mix(cc,pn,0.45);return "rgb("+Math.round(cc[0])+","+Math.round(cc[1])+","+Math.round(cc[2])+")"}
+  function quad(p,fill,stroke){x.beginPath();x.moveTo(p[0][0],p[0][1]);for(var i=1;i<4;i++)x.lineTo(p[i][0],p[i][1]);x.closePath();if(fill){x.fillStyle=fill;x.fill()}if(stroke){x.strokeStyle=stroke;x.lineWidth=1;x.stroke()}}
+  x.clearRect(0,0,c.width,c.height);
+  var N=26,q=[],i,j;
+  for(i=0;i<N;i++)for(j=0;j<N;j++){var a0=-1+2*i/N,a1=-1+2*(i+1)/N,b0=-1+2*j/N,b1=-1+2*(j+1)/N,am=(a0+a1)/2,bm=(b0+b1)/2;
+    q.push({a0:a0,a1:a1,b0:b0,b1:b1,v:seAt(am,bm),d:am*sa+bm*ca})}
+  q.sort(function(u,w){return u.d-w.d});
+  /* Boden: dieselbe Faerbung wie die 2D-Karte */
+  q.forEach(function(k){quad([P(k.a0,k.b0,0),P(k.a1,k.b0,0),P(k.a1,k.b1,0),P(k.a0,k.b1,0)],showSE?col(k.v,true):"rgb("+pn.join(",")+")",null)});
+  var cs=[[-1,-1],[1,-1],[1,1],[-1,1]].map(function(p){return {p:p,s:P(p[0],p[1],0)}});
+  x.strokeStyle=ink;x.lineWidth=2;x.beginPath();cs.forEach(function(k,n){x[n?"lineTo":"moveTo"](k.s[0],k.s[1])});x.closePath();x.stroke();
+  /* hintere Pfosten und Skala */
+  var back=cs.slice().sort(function(u,w){return u.s[2]-w.s[2]}),left=cs.slice().sort(function(u,w){return u.s[0]-w.s[0]})[0];
+  x.strokeStyle=line;x.lineWidth=1.5;[back[0],back[1],back[2]].forEach(function(k){var t=P(k.p[0],k.p[1],1);x.beginPath();x.moveTo(k.s[0],k.s[1]);x.lineTo(t[0],t[1]);x.stroke()});
+  x.font="20px "+FONT;x.fillStyle=muted;x.textAlign="right";x.textBaseline="middle";
+  [0,0.2,0.4,0.6,0.8,1].forEach(function(z){var t=P(left.p[0],left.p[1],z);x.fillText(de(z,1),t[0]-12,t[1]);x.beginPath();x.moveTo(t[0]-6,t[1]);x.lineTo(t[0],t[1]);x.strokeStyle=muted;x.stroke()});
+  design(st.nc).forEach(function(p,k){var t=P(p[0],p[1],0);x.beginPath();x.arc(t[0],t[1],k>=8?9:7,0,7);x.fillStyle=css("--panel");x.fill();x.lineWidth=2.5;x.strokeStyle=ink;x.stroke()});
+  if(showSE)q.forEach(function(k){quad([P(k.a0,k.b0,seAt(k.a0,k.b0)),P(k.a1,k.b0,seAt(k.a1,k.b0)),P(k.a1,k.b1,seAt(k.a1,k.b1)),P(k.a0,k.b1,seAt(k.a0,k.b1))],col(k.v,false),"rgba(0,0,0,.18)")});
+  if(showThr&&st.thr<=1.02){x.setLineDash([10,7]);x.strokeStyle=or;x.lineWidth=3;x.beginPath();
+    cs.forEach(function(k,n){var t=P(k.p[0],k.p[1],st.thr);x[n?"lineTo":"moveTo"](t[0],t[1])});x.closePath();x.stroke();x.setLineDash([]);
+}
+  x.fillStyle=ink;x.font="600 22px "+FONT;x.textAlign="center";x.textBaseline="top";
+  var fr=cs.slice().sort(function(u,w){return w.s[2]-u.s[2]})[0],nb=cs.filter(function(k){return k!==fr&&(k.p[0]===fr.p[0]||k.p[1]===fr.p[1])});
+  nb.forEach(function(k){var mxp=(k.s[0]+fr.s[0])/2,myp=(k.s[1]+fr.s[1])/2,lab=k.p[1]===fr.p[1]?"Faktor A":"Faktor B";x.fillText(lab,mxp+(mxp<fr.s[0]?-40:40),myp+18)});
+  if(showThr&&st.thr<=1.02){var tt=P(fr.p[0],fr.p[1],st.thr);x.fillStyle=or;x.font="600 21px "+FONT;x.textAlign="left";x.textBaseline="top";x.fillText("erlaubt: "+de(st.thr,3),tt[0]+14,tt[1]+6);x.fillStyle=ink;x.font="600 22px "+FONT;x.textAlign="center"}
+  x.save();x.translate(26,CY-150);x.rotate(-Math.PI/2);x.fillText("Standardfehler",0,0);x.restore();
+}
+function drawMap(){
+  if(V3.on){draw3d();return}
+  var c=$("map"),x=c.getContext("2d"),ink=css("--ink"),muted=css("--muted"),line=css("--line");
+  var lo=rgb(css("--map-lo")),hi=rgb(css("--map-hi")),tl=rgb(css("--teal")),ts=rgb(css("--teal-soft")),pn=rgb(css("--panel"));
+  var showSE=st.step>=1,showThr=st.step>=3;
+  x.clearRect(0,0,c.width,c.height);
+  var o=off.getContext("2d"),im=o.createImageData(G,G);
+  for(var i=0;i<G*G;i++){var v=se[i],band=Math.floor(v/0.05)*0.05,t=Math.min(1,Math.max(0,(band-0.3)/0.6)),col;
+    if(!showSE)col=pn;else if(showThr&&v<=st.thr)col=mix(ts,tl,0.1+0.5*t);else col=mix(lo,hi,0.1+0.9*t);
+    im.data[i*4]=col[0];im.data[i*4+1]=col[1];im.data[i*4+2]=col[2];im.data[i*4+3]=255}
+  o.putImageData(im,0,0);x.imageSmoothingEnabled=false;x.drawImage(off,ML,MT,MS,MS);
+  if(!showSE){x.strokeStyle=line;x.lineWidth=1;[0.25,0.5,0.75].forEach(function(f){x.beginPath();x.moveTo(ML+f*MS,MT);x.lineTo(ML+f*MS,MT+MS);x.moveTo(ML,MT+f*MS);x.lineTo(ML+MS,MT+f*MS);x.stroke()})}
+  x.strokeStyle=ink;x.lineWidth=2;x.strokeRect(ML,MT,MS,MS);
+  x.fillStyle=muted;x.font="21px "+FONT;
+  [-1,-0.5,0,0.5,1].forEach(function(v){x.textAlign="center";x.textBaseline="top";x.fillText(de(v,1),ML+(v+1)/2*MS,MT+MS+12);
+    x.textAlign="right";x.textBaseline="middle";x.fillText(de(v,1),ML-18,MT+(1-v)/2*MS)});
+  x.fillStyle=ink;x.font="600 23px "+FONT;x.textAlign="center";x.textBaseline="top";
+  x.fillText("Faktor A (kodiert)",ML+MS/2,MT+MS+46);
+  x.save();x.translate(28,MT+MS/2);x.rotate(-Math.PI/2);x.fillText("Faktor B (kodiert)",0,0);x.restore();
+  design(st.nc).forEach(function(p,k){var px=ML+(p[0]+1)/2*MS,py=MT+(1-p[1])/2*MS;
+    x.beginPath();x.arc(px,py,k>=8?13:10,0,7);x.fillStyle=css("--panel");x.fill();x.lineWidth=3;x.strokeStyle=ink;x.stroke()});
+  x.fillStyle=ink;x.font="600 22px "+FONT;x.textAlign="left";x.textBaseline="bottom";
+  x.fillText(st.nc+"×",ML+MS/2+18,MT+MS/2-10);
+  EX.slice(0,st.e).forEach(function(p){var px=ML+(p[0]+1)/2*MS,py=MT+(1-p[1])/2*MS;x.textAlign=p[0]>0?"right":"left";x.textBaseline=p[1]>0?"top":"bottom";
+    x.fillStyle=css("--orange");x.fillText("2×",px+(p[0]>0?-16:16),py+(p[1]>0?14:-14))});x.fillStyle=ink;
+  if(showSE){x.font="600 21px "+FONT;x.textBaseline="top";x.textAlign="left";
+    x.fillText("Mitte: "+de(se[(G/2)*G+G/2],2),ML+MS/2+18,MT+MS/2+12);
+    x.textAlign="right";x.textBaseline="top";x.fillText("Ecke: "+de(st.max,2),ML+MS-22,MT+(st.e>=2?48:16))}
+}
+function drawFds(){
+  var c=$("fds"),x=c.getContext("2d"),ink=css("--ink"),muted=css("--muted"),line=css("--line"),or=css("--orange"),tl=css("--teal"),ts=css("--teal-soft");
+  var showCurve=st.step>=2,showThr=st.step>=3,showF=st.step>=4;
+  x.clearRect(0,0,c.width,c.height);x.font="21px "+FONT;x.lineWidth=1;
+  for(var g=0;g<=5;g++){var v=g*0.2,y=fY(v);x.strokeStyle=line;x.beginPath();x.moveTo(FL,y);x.lineTo(FL+FW,y);x.stroke();
+    x.fillStyle=muted;x.textAlign="right";x.textBaseline="middle";x.fillText(de(v,1),FL-12,y)}
+  for(g=0;g<=4;g++){var f=g*0.25,px=fX(f);x.strokeStyle=line;x.beginPath();x.moveTo(px,FT);x.lineTo(px,FT+FH);x.stroke();
+    x.fillStyle=muted;x.textAlign="center";x.textBaseline="top";x.fillText(Math.round(f*100)+" %",px,FT+FH+12)}
+  var N=sorted.length,K=240,k,fr;
+  if(showF&&st.fds>0){x.beginPath();x.moveTo(fX(0),fY(0));
+    for(k=0;k<=K;k++){fr=k/K*st.fds;x.lineTo(fX(fr),fY(sorted[Math.min(N-1,Math.floor(fr*N))]))}
+    x.lineTo(fX(st.fds),fY(0));x.closePath();x.fillStyle=ts;x.fill()}
+  if(showCurve){x.beginPath();for(k=0;k<=K;k++){fr=k/K;var yy=fY(sorted[Math.min(N-1,Math.floor(fr*(N-1)))]);if(k)x.lineTo(fX(fr),yy);else x.moveTo(fX(fr),yy)}
+    x.strokeStyle=ink;x.lineWidth=4;x.lineJoin="round";x.stroke()}
+  x.strokeStyle=ink;x.lineWidth=2;x.strokeRect(FL,FT,FW,FH);
+  x.font="600 23px "+FONT;
+  if(showThr){var ty=Math.max(fY(st.thr),FT);
+    x.setLineDash([10,7]);x.strokeStyle=or;x.lineWidth=3;x.beginPath();x.moveTo(FL,ty);x.lineTo(FL+FW,ty);x.stroke();x.setLineDash([]);
+    x.fillStyle=or;x.textAlign="left";x.textBaseline=ty>FT+44?"bottom":"top";
+    x.fillText("erlaubt: "+de(st.thr,3),FL+14,ty>FT+44?ty-8:ty+8);
+    x.beginPath();x.moveTo(FL+FW+6,ty);x.lineTo(FL+FW+26,ty-12);x.lineTo(FL+FW+26,ty+12);x.closePath();x.fill();
+    if(showF){var tx=fX(st.fds);x.setLineDash([10,7]);x.strokeStyle=tl;x.beginPath();x.moveTo(tx,ty);x.lineTo(tx,FT+FH);x.stroke();x.setLineDash([]);
+      x.beginPath();x.arc(tx,ty,11,0,7);x.fillStyle=tl;x.fill();
+      var right=st.fds<0.7;x.textAlign=right?"left":"right";x.textBaseline="bottom";
+      x.fillText("FDS "+de(st.fds*100,1)+" %",tx+(right?16:-16),FT+FH-12)}}
+  x.fillStyle=ink;x.textAlign="center";x.textBaseline="top";x.fillText("Anteil des Versuchsraums",FL+FW/2,FT+FH+48);
+  x.save();x.translate(28,FT+FH/2);x.rotate(-Math.PI/2);x.fillText("Standardfehler der Vorhersage",0,0);x.restore();
+}
+function say(){
+  var ok=st.fds>=0.8,p=de(st.fds*100,1)+" %";
+  switch(st.step){
+    case 0:return "Das Design: "+st.n+" Runs. 4 Eckpunkte, 4 Sternpunkte auf den Kanten und "+st.nc+" Center Point"+(st.nc>1?"s":"")+" in der Mitte."+(st.e?" Dazu "+st.e+" Wiederholung"+(st.e>1?"en":"")+" am Rand (erst die Ecken, dann die Sternpunkte).":"");
+    case 1:return "Die Vorhersage ist nicht überall gleich genau. In der Mitte ist der Standardfehler klein ("+de(se[(G/2)*G+G/2],2)+"), in den Ecken groß ("+de(st.max,2)+").";
+    case 2:return "Die FDS-Kurve sortiert alle Stellen des Versuchsraums nach ihrem Standardfehler. Links die genauesten, rechts die Ecken.";
+    case 3:return "Die Anforderung: Ich will den mittleren Response auf ± "+de(st.d,2)+" genau kennen, bei s = "+de(st.s,2)+". Das erlaubt einen Standardfehler von höchstens "+de(st.thr,3)+".";
+    case 4:return p+" des Versuchsraums liegen unter der Linie und sind damit genau genug. Das Ziel sind mindestens 80 %. "+(ok?"Das Design reicht.":"Das Design reicht nicht.");
+    default:return "Mit ± "+de(st.d,2)+", s = "+de(st.s,2)+" und "+st.n+" Runs sind "+p+" genau genug. "+(ok?"Das reicht.":"Zu wenig. Abhilfe: mehr Runs, ein größeres d oder ein kleineres s.");
+  }}
+function render(){
+  calc();FONT=css("--font");
+  $("dOut").textContent="± "+de(st.d,2);$("sOut").textContent=de(st.s,2);$("ncOut").textContent=st.nc;$("eOut").textContent="+"+st.e;$("e").value=st.e;
+  $("d").value=st.d;$("s").value=st.s;$("nc").value=st.nc;
+  $("say").textContent=say();$("rN").textContent=st.n;
+  $("rThr").textContent=st.step>=3?de(st.thr,3):"–";
+  var p=$("rPill");
+  if(st.step>=4){$("rFds").textContent=de(st.fds*100,1)+" %";var ok=st.fds>=0.8;p.textContent=ok?"reicht":"zu wenig";p.className="pill "+(ok?"ok":"bad");p.style.display=""}
+  else{$("rFds").textContent="–";p.style.display="none"}
+  $("stepno").textContent=st.step<LAST?"Schritt "+(st.step+1)+" von "+(LAST+1):"freier Modus";
+  $("mapsub").textContent=V3.on?"Höhe = Standardfehler. Türkis: genau genug. Orange: die erlaubte Höhe. Ziehen dreht die Ansicht.":"Punkte: die Runs des Designs. Türkis: genau genug. „2×“: dieser Randpunkt wird wiederholt.";
+  $("v3").setAttribute("aria-pressed",V3.on?"true":"false");$("v3").textContent=V3.on?"2D-Ansicht":"3D-Ansicht";
+  $("back").disabled=st.step===0;$("next").disabled=st.step===LAST;
+  drawMap();drawFds();
+}
+function go(n){st.step=Math.max(0,Math.min(LAST,n));render()}
+function setv(k,v){st[k]=v;if(k==="nc"||k==="e")build();else st.step=LAST;render()}
+$("d").addEventListener("input",function(e){setv("d",+e.target.value)});
+$("s").addEventListener("input",function(e){setv("s",+e.target.value)});
+$("nc").addEventListener("input",function(e){setv("nc",+e.target.value)});
+$("e").addEventListener("input",function(e){setv("e",+e.target.value)});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){st.d=DEF.d;st.s=DEF.s;st.nc=DEF.nc;st.e=DEF.e;st.step=0;build();render()});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+$("v3").addEventListener("click",function(){V3.on=!V3.on;render()});
+(function(){var m=$("map"),dr=false,lx=0;
+  m.addEventListener("pointerdown",function(e){if(!V3.on)return;dr=true;lx=e.clientX;try{m.setPointerCapture(e.pointerId)}catch(err){}});
+  m.addEventListener("pointermove",function(e){if(!dr)return;V3.az+=(e.clientX-lx)*0.008;lx=e.clientX;drawMap()});
+  m.addEventListener("pointerup",function(){dr=false});m.addEventListener("pointercancel",function(){dr=false})})();
+/* Schwellenlinie ziehen */
+var drag=false,cv=$("fds");
+function fromEvent(e){var r=cv.getBoundingClientRect(),y=(e.clientY-r.top)*cv.height/r.height;
+  var thr=Math.max(0.02,Math.min(1,(FT+FH-y)/FH));var d=Math.round(thr*T[st.df]*st.s*100)/100;
+  st.d=Math.max(0.3,Math.min(1.5,d));st.step=LAST;render()}
+cv.addEventListener("pointerdown",function(e){if(st.step<3)return;drag=true;try{cv.setPointerCapture(e.pointerId)}catch(err){}fromEvent(e)});
+cv.addEventListener("pointermove",function(e){if(drag)fromEvent(e)});
+cv.addEventListener("pointerup",function(){drag=false});cv.addEventListener("pointercancel",function(){drag=false});
+window.fdsSet=function(o){for(var k in o){if(k==="v3")V3.on=o[k];else st[k]=o[k]}build();render()};
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+build();render();
+})();
+</script>
+</body>
+</html>

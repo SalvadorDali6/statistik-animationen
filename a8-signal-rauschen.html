@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signal und Rauschen</title>
+<style>
+/* Plan: A8, links die Messwerte zweier Einstellungen, rechts der t-Wert gegen seine Grenze, darunter die Kennzahlen. Tuerkis = Signal, Orange = Rauschen. Vorlage: Flaeche in 3D links, Wechselwirkungsdiagramm rechts, 5 Regler fuer die Modellterme. Basis: Statussatz zum Vorlesen,
+   zwei gekoppelte Grafiken. Tuerkis = genau genug, Orange = die Anforderung (Schwelle), Grau = Rest. */
+:root{
+  --bg:#f7f8f8; --panel:#ffffff; --ink:#1d2430; --muted:#667080; --line:#dfe3e6;
+  --teal:#0f8a80; --teal-soft:#cfeae6; --orange:#d9730d; --ok:#1f7a4d; --bad:#b3372f;
+  --map-lo:#eef3f3; --map-hi:#2f7f78; --star:#b3372f;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+    --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+    --map-lo:#262c31; --map-hi:#4fc9bd; --star:#ef8a80;}
+}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#14171a; --panel:#1d2125; --ink:#e9ecee; --muted:#9aa3ad; --line:#353b42;
+  --teal:#3fc0b4; --teal-soft:#1f4a46; --orange:#f0933a; --ok:#6fcf97; --bad:#ef8a80;
+  --map-lo:#262c31; --map-hi:#4fc9bd; --star:#ef8a80;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:17px;line-height:1.4;padding:16px clamp(16px,3vw,36px) 20px;max-width:1480px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.55rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto 1fr;gap:14px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--teal-soft);border-color:var(--teal);color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.85rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.sliders{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));gap:10px 24px}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:.95rem}
+.ctl output{font-variant-numeric:tabular-nums;color:var(--orange)}
+input[type=range]{width:100%;accent-color:var(--orange);margin:4px 0 0;height:20px}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--teal);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:76px}
+.status p{margin:0;font-size:1.12rem;max-width:95ch}
+.nums{display:flex;gap:26px}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.78rem;white-space:nowrap}
+.nums .v{font-size:1.35rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font-size:.8rem;font-weight:600;border-radius:999px;padding:1px 9px;margin-left:6px;vertical-align:middle;border:1.5px solid currentColor}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--bad)}
+.plots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 6px;min-width:0}
+.card h2{font-size:1rem;font-weight:650;margin:0}
+.cardhead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cardhead button{padding:3px 10px;font-size:.85rem}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.card p{margin:1px 0 4px;color:var(--muted);font-size:.86rem}
+canvas{display:block;width:100%;height:auto;touch-action:none}
+#data{aspect-ratio:900/700}
+#tbar{aspect-ratio:900/400}
+.formula{margin:6px 0 0;font-size:1.05rem;font-variant-numeric:tabular-nums}
+.formula span{white-space:nowrap}
+.formula .off{color:var(--muted);opacity:.55}
+.formula b{font-weight:650}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;margin-top:6px}
+th,td{text-align:right;padding:6px 8px;border-top:1px solid var(--line)}
+th{font-size:.78rem;color:var(--muted);font-weight:600;border-top:0}
+th:first-child,td:first-child{text-align:left}
+.sw{display:inline-block;width:26px;height:4px;border-radius:2px;margin-right:8px;vertical-align:middle}
+@media (max-width:860px){.bar,.status{grid-template-columns:1fr}.sliders,.plots{grid-template-columns:1fr}.nums div{text-align:left}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Signal und Rauschen: Wann ist ein Effekt erkennbar?</h1>
+    <p class="sub">Ein Faktor, zwei Einstellungen, mehrere Wiederholungen je Einstellung.</p>
+  </div>
+  <button id="full" type="button">Vollbild</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Zurück</button>
+    <button id="next" type="button" class="primary">Weiter</button>
+    <button id="reset" type="button">Reset</button>
+    <button id="dice" type="button">Neu würfeln</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="sliders">
+    <div class="ctl"><label for="delta">Signal: wahrer Effekt <output id="deltaOut"></output></label><input id="delta" type="range" min="0" max="20" step="0.5"></div>
+    <div class="ctl"><label for="sd">Rauschen: Streuung σ <output id="sdOut"></output></label><input id="sd" type="range" min="0.5" max="10" step="0.5"></div>
+    <div class="ctl"><label for="n">Wiederholungen je Einstellung <output id="nOut"></output></label><input id="n" type="range" min="2" max="8" step="1"></div>
+  </div>
+</div>
+
+<div class="status" style="grid-template-columns:1fr">
+  <div>
+    <p id="say"></p>
+    <p class="formula" id="formula"></p>
+  </div>
+</div>
+
+<div class="plots">
+  <div class="card">
+    <h2>Die Messwerte</h2>
+    <p>Jeder Punkt ist ein Run. Strich: Mittelwert der Einstellung.</p>
+    <canvas id="data" width="900" height="700"></canvas>
+  </div>
+  <div class="card">
+    <h2>t-Wert des Effekts</h2>
+    <p>Signal geteilt durch seine Unsicherheit. Über der Grenze (α = 5 %) gilt der Effekt als erkennbar.</p>
+    <canvas id="tbar" width="900" height="400"></canvas>
+    <table>
+      <thead><tr><th>Kennzahl</th><th>Wert</th><th>Bedeutung</th></tr></thead>
+      <tbody>
+        <tr><td><span class="sw" style="background:var(--teal)"></span>Signal</td><td id="k1"></td><td>Unterschied der Mittelwerte</td></tr>
+        <tr><td><span class="sw" style="background:var(--orange)"></span>Rauschen</td><td id="k2"></td><td>Streuung der Wiederholungen (s)</td></tr>
+        <tr><td>t-Wert</td><td id="k3"></td><td id="k3b"></td></tr>
+        <tr><td>p-Wert</td><td id="k4"></td><td id="k4b"></td></tr>
+        <tr><td>Power</td><td id="k5"></td><td>So oft wäre dieser Effekt erkennbar</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+function lcg(seed){var s=seed>>>0;return function(){s=(s*1664525+1013904223)>>>0;return s/4294967296}}
+function normals(seed,n){var r=lcg(seed),o=[];for(var i=0;i<n;i++){var u=1-r(),v=r();o.push(Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v))}return o}
+var TC={2:4.303,4:2.776,6:2.447,8:2.306,10:2.228,12:2.179,14:2.145};
+function stats(z,delta,sd,n,base){var a=[],b=[],i;for(i=0;i<n;i++){a.push(base+sd*z[i]);b.push(base+delta+sd*z[8+i])}
+  function mean(v){return v.reduce(function(p,q){return p+q},0)/v.length}
+  var ma=mean(a),mb=mean(b),ss=0;for(i=0;i<n;i++){ss+=(a[i]-ma)*(a[i]-ma)+(b[i]-mb)*(b[i]-mb)}
+  var df=2*n-2,sp=Math.sqrt(ss/df),se=sp*Math.sqrt(2/n),t=(mb-ma)/se;return {a:a,b:b,ma:ma,mb:mb,diff:mb-ma,sp:sp,se:se,t:t,df:df,crit:TC[df]}}
+
+var $=function(id){return document.getElementById(id)};
+var BASE=62,SEED=37,LAST=4,NS=600;
+var PRE=[{delta:10,sd:1.5,n:2},{delta:10,sd:1.5,n:2},{delta:10,sd:6,n:2},{delta:10,sd:6,n:6}];
+var c={delta:10,sd:1.5,n:2},st={step:0},Z=normals(SEED,16),SIM=normals(4711,NS*16),FONT;
+var JIT=[-0.5,0.45,-0.1,0.7,-0.8,0.2,0.9,-0.3];
+function de(x,k){return x.toFixed(k).replace(".",",").replace("-","−")}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+/* p-Wert der t-Verteilung ueber die unvollstaendige Betafunktion */
+function lgam(x){var cf=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.001208650973866179,-0.000005395239384953],y=x,t=x+5.5,s=1.000000000190015;
+  t-=(x+0.5)*Math.log(t);for(var j=0;j<6;j++){y+=1;s+=cf[j]/y}return -t+Math.log(2.5066282746310005*s/x)}
+function betacf(a,b,x){var qab=a+b,qap=a+1,qam=a-1,cc=1,d=1-qab*x/qap,h,m,m2,aa;if(Math.abs(d)<1e-30)d=1e-30;d=1/d;h=d;
+  for(m=1;m<=200;m++){m2=2*m;aa=m*(b-m)*x/((qam+m2)*(a+m2));d=1+aa*d;if(Math.abs(d)<1e-30)d=1e-30;cc=1+aa/cc;if(Math.abs(cc)<1e-30)cc=1e-30;d=1/d;h*=d*cc;
+    aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));d=1+aa*d;if(Math.abs(d)<1e-30)d=1e-30;cc=1+aa/cc;if(Math.abs(cc)<1e-30)cc=1e-30;d=1/d;var del=d*cc;h*=del;if(Math.abs(del-1)<3e-9)break}return h}
+function ibeta(a,b,x){if(x<=0)return 0;if(x>=1)return 1;var bt=Math.exp(lgam(a+b)-lgam(a)-lgam(b)+a*Math.log(x)+b*Math.log(1-x));
+  return x<(a+1)/(a+b+2)?bt*betacf(a,b,x)/a:1-bt*betacf(b,a,1-x)/b}
+function pval(t,df){return ibeta(df/2,0.5,df/(df+t*t))}
+function power(){var n=Math.round(c.n),hit=0;for(var k=0;k<NS;k++){var r=stats(SIM.slice(k*16,k*16+16),c.delta,c.sd,n,BASE);if(Math.abs(r.t)>r.crit)hit++}return hit/NS}
+var DL=118,DR=30,DT=18,DB=84,DW=900-DL-DR,DH=700-DT-DB,YA=30,YB=100;
+function drawData(r){
+  var cv=$("data"),x=cv.getContext("2d"),ink=css("--ink"),muted=css("--muted"),line=css("--line"),tl=css("--teal"),or=css("--orange");
+  function Y(v){return DT+DH-(Math.max(YA,Math.min(YB,v))-YA)/(YB-YA)*DH}
+  var XA=DL+DW*0.22,XB=DL+DW*0.78;
+  x.clearRect(0,0,cv.width,cv.height);x.font="21px "+FONT;x.lineWidth=1;
+  [30,40,50,60,70,80,90,100].forEach(function(v){x.strokeStyle=line;x.beginPath();x.moveTo(DL,Y(v));x.lineTo(DL+DW,Y(v));x.stroke();x.fillStyle=muted;x.textAlign="right";x.textBaseline="middle";x.fillText(v+" %",DL-10,Y(v))});
+  x.strokeStyle=ink;x.lineWidth=2;x.strokeRect(DL,DT,DW,DH);
+  x.fillStyle=ink;x.font="600 23px "+FONT;x.textAlign="center";x.textBaseline="top";x.fillText("50 °C",XA,DT+DH+14);x.fillText("120 °C",XB,DT+DH+14);
+  x.font="600 21px "+FONT;x.fillText("Temperatur",DL+DW/2,DT+DH+50);
+  x.save();x.translate(14,DT+DH/2);x.rotate(-Math.PI/2);x.fillText("Ausbeute",0,0);x.restore();
+  var showNoise=st.step>=1;
+  [[r.a,r.ma,XA],[r.b,r.mb,XB]].forEach(function(g){
+    if(showNoise){x.fillStyle=or;x.globalAlpha=.16;x.fillRect(g[2]-95,Y(g[1]+r.sp),190,Y(g[1]-r.sp)-Y(g[1]+r.sp));x.globalAlpha=1}
+    x.strokeStyle=ink;x.lineWidth=5;x.beginPath();x.moveTo(g[2]-95,Y(g[1]));x.lineTo(g[2]+95,Y(g[1]));x.stroke();
+    g[0].forEach(function(v,i){x.beginPath();x.arc(g[2]+JIT[i]*62,Y(v),11,0,7);x.fillStyle=ink;x.globalAlpha=.85;x.fill();x.globalAlpha=1;x.lineWidth=2.5;x.strokeStyle=css("--panel");x.stroke()});
+    x.font="600 21px "+FONT;x.fillStyle=ink;x.textAlign="center";x.textBaseline="bottom";x.fillText("Mittel "+de(g[1],1),g[2],Math.min(Y(g[1]+ (showNoise?r.sp:0))-22,Y(Math.max.apply(null,g[0]))-18))});
+  /* Signalpfeil */
+  var xm=DL+DW/2,y0=Y(r.ma),y1=Y(r.mb),dir=y1<y0?-1:1;
+  x.setLineDash([7,6]);x.strokeStyle=tl;x.lineWidth=2;x.beginPath();x.moveTo(XA+95,y0);x.lineTo(xm,y0);x.moveTo(XB-95,y1);x.lineTo(xm,y1);x.stroke();x.setLineDash([]);
+  x.lineWidth=6;x.beginPath();x.moveTo(xm,y0);x.lineTo(xm,y1-dir*10);x.stroke();
+  if(Math.abs(y1-y0)>14){x.fillStyle=tl;x.beginPath();x.moveTo(xm,y1);x.lineTo(xm-13,y1-dir*20);x.lineTo(xm+13,y1-dir*20);x.closePath();x.fill()}
+  x.font="600 22px "+FONT;var sl="Signal "+(r.diff>=0?"+":"")+de(r.diff,1),sw=x.measureText(sl).width;
+  x.fillStyle=css("--panel");x.globalAlpha=.9;x.fillRect(xm+14,(y0+y1)/2-16,sw+12,32);x.globalAlpha=1;
+  x.fillStyle=tl;x.textAlign="left";x.textBaseline="middle";x.fillText(sl,xm+20,(y0+y1)/2);
+  if(showNoise){x.fillStyle=or;x.textAlign="left";x.textBaseline="middle";x.fillText("Rauschen ± "+de(r.sp,1),XB+104>DL+DW-170?XA-95:XB+104,Y(r.ma-r.sp)+ (XB+104>DL+DW-170?22:0))}
+}
+var TL=118,TR=30,TT=18,TB=56,TW=900-TL-TR,TH=400-TT-TB;
+function drawT(r){
+  var cv=$("tbar"),x=cv.getContext("2d"),ink=css("--ink"),muted=css("--muted"),line=css("--line"),tl=css("--teal"),or=css("--orange");
+  var t=Math.abs(r.t),TM=Math.max(12,Math.ceil(t/4)*4),show=st.step>=1;
+  function Y(v){return TT+TH-Math.min(v,TM)/TM*TH}
+  x.clearRect(0,0,cv.width,cv.height);x.font="21px "+FONT;x.lineWidth=1;
+  for(var v=0;v<=TM;v+=TM>16?4:2){x.strokeStyle=line;x.beginPath();x.moveTo(TL,Y(v));x.lineTo(TL+TW,Y(v));x.stroke();x.fillStyle=muted;x.textAlign="right";x.textBaseline="middle";x.fillText(v,TL-10,Y(v))}
+  x.strokeStyle=ink;x.lineWidth=2;x.strokeRect(TL,TT,TW,TH);
+  x.fillStyle=ink;x.font="600 21px "+FONT;x.textAlign="center";x.textBaseline="top";x.fillText("Effekt der Temperatur",TL+TW/2,TT+TH+14);
+  x.save();x.translate(14,TT+TH/2);x.rotate(-Math.PI/2);x.fillText("|t|",0,0);x.restore();
+  if(!show){x.fillStyle=muted;x.font="21px "+FONT;x.textAlign="center";x.textBaseline="middle";x.fillText("kommt im nächsten Schritt",TL+TW/2,TT+TH/2);return}
+  var ok=t>r.crit,bw=220,bx=TL+TW/2-bw/2;
+  x.fillStyle=ok?tl:muted;x.fillRect(bx,Y(t),bw,TT+TH-Y(t));
+  x.font="600 26px "+FONT;x.fillStyle=ok?tl:muted;x.textAlign="center";x.textBaseline="bottom";x.fillText(de(t,1),TL+TW/2,Y(t)-8);
+  x.setLineDash([10,7]);x.strokeStyle=or;x.lineWidth=3;x.beginPath();x.moveTo(TL,Y(r.crit));x.lineTo(TL+TW,Y(r.crit));x.stroke();x.setLineDash([]);
+  x.fillStyle=or;x.font="600 21px "+FONT;x.textAlign="left";x.textBaseline="bottom";x.fillText("Grenze "+de(r.crit,2),TL+14,Y(r.crit)-8);
+}
+function say(r,pw){var ok=Math.abs(r.t)>r.crit,n=Math.round(c.n);
+  switch(st.step){
+    case 0:return "Wir vergleichen zwei Temperaturen mit je "+n+" Runs. Der Mittelwert der Ausbeute steigt um "+de(r.diff,1)+" Punkte. Das ist das Signal.";
+    case 1:return "Die Wiederholungen bei gleicher Einstellung streuen: das Rauschen. Hier ist es klein (± "+de(r.sp,1)+"). Das Signal ragt klar heraus, der t-Wert liegt über der Grenze.";
+    case 2:return "Der wahre Effekt ist derselbe, aber das Rauschen ist viermal so groß. Der Unterschied ist noch da, er könnte jetzt aber auch Zufall sein. Der t-Wert fällt unter die Grenze.";
+    case 3:return "Mehr Wiederholungen: mit "+n+" statt 2 Runs je Einstellung werden die Mittelwerte genauer. Das wahre Rauschen ist dasselbe, aber das Signal ist wieder erkennbar.";
+    default:return (ok?"Der Effekt ist erkennbar.":"Der Effekt geht im Rauschen unter.")+" Mit diesem Signal, diesem Rauschen und "+n+" Runs je Einstellung wäre er in "+Math.round(pw*100)+" von 100 Versuchen erkennbar. „Neu würfeln“ zeigt, wie stark das einzelne Ergebnis vom Zufall abhängt.";
+  }}
+function render(){FONT=css("--font");var n=Math.round(c.n),r=stats(Z,c.delta,c.sd,n,BASE),pw=power(),t=Math.abs(r.t),p=pval(t,r.df),ok=t>r.crit;
+  $("delta").value=c.delta;$("sd").value=c.sd;$("n").value=n;
+  $("deltaOut").textContent=de(c.delta,1);$("sdOut").textContent=de(c.sd,1);$("nOut").textContent=n;
+  $("say").textContent=say(r,pw);
+  $("formula").innerHTML=st.step>=1?"t = Signal / (Rauschen · √(2/n)) = <b>"+de(r.diff,1)+"</b> / (<b>"+de(r.sp,1)+"</b> · "+de(Math.sqrt(2/n),2)+") = <b>"+de(r.t,1)+"</b>":"&nbsp;";
+  $("stepno").textContent=st.step<LAST?"Schritt "+(st.step+1)+" von "+(LAST+1):"freier Modus";
+  $("back").disabled=st.step===0;$("next").disabled=st.step===LAST;
+  var sh=st.step>=1;
+  $("k1").textContent=(r.diff>=0?"+":"")+de(r.diff,1);$("k2").textContent=sh?"± "+de(r.sp,1):"–";
+  $("k3").textContent=sh?de(t,1):"–";$("k3b").textContent=sh?(ok?"über der Grenze "+de(r.crit,2):"unter der Grenze "+de(r.crit,2)):"";
+  $("k4").textContent=sh?(p<0.001?"< 0,001":de(p,3)):"–";$("k4b").textContent=sh?(p<0.05?"kleiner als 0,05":"größer als 0,05"):"";
+  $("k5").textContent=st.step>=3?Math.round(pw*100)+" %":"–";
+  drawData(r);drawT(r)}
+var raf=0;
+function tween(target){cancelAnimationFrame(raf);var from={delta:c.delta,sd:c.sd},t0=0;c.n=target.n;
+  if(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches){c.delta=target.delta;c.sd=target.sd;render();return}
+  function tick(ts){if(!t0)t0=ts;var p=Math.min(1,(ts-t0)/1200),e=0.5-0.5*Math.cos(Math.PI*p);
+    c.delta=from.delta+(target.delta-from.delta)*e;c.sd=from.sd+(target.sd-from.sd)*e;render();
+    if(p<1)raf=requestAnimationFrame(tick);else{c.delta=target.delta;c.sd=target.sd;render()}}
+  raf=requestAnimationFrame(tick)}
+function go(n){st.step=Math.max(0,Math.min(LAST,n));tween(PRE[Math.min(st.step,3)])}
+["delta","sd","n"].forEach(function(k){$(k).addEventListener("input",function(e){cancelAnimationFrame(raf);c[k]=+e.target.value;st.step=LAST;render()})});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){Z=normals(SEED,16);go(0)});
+$("dice").addEventListener("click",function(){Z=normals(Math.floor(Math.random()*1e9)+1,16);if(st.step<LAST)st.step=LAST;render()});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+window.a8Set=function(step){st.step=step;var p=PRE[Math.min(step,3)];c.delta=p.delta;c.sd=p.sd;c.n=p.n;render()};
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+render();
+})();
+</script>
+</body>
+</html>
