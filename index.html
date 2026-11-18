@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interaktive Statistik · FH JOANNEUM</title>
+<style>
+  :root { --a1:#F6A420; --a2:#CB6413; --a3:#FFCA6C; --g1:#BBBBBB; --g3:#444444; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Calibri, Carlito, "Segoe UI", Arial, sans-serif; color:var(--g3); background:#fff; }
+  header { background:var(--a1); color:#fff; padding:28px 24px 22px; }
+  header h1 { margin:0; font-family:Georgia, serif; font-size:30px; }
+  header p { margin:6px 0 0; font-size:17px; }
+  main { max-width:900px; margin:0 auto; padding:24px; }
+  h2 { font-family:Georgia, serif; color:var(--a2); font-size:22px; margin:26px 0 12px; border-bottom:2px solid var(--a3); padding-bottom:6px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px; }
+  a.card { display:block; text-decoration:none; color:inherit; border:1px solid var(--g1); border-left:6px solid var(--a1); border-radius:8px; padding:14px 16px; transition:background .15s; }
+  a.card:hover, a.card:focus { background:#FFF4E0; outline:none; }
+  .card b { display:block; font-size:18px; margin-bottom:4px; color:var(--g3); }
+  .card span { font-size:15px; line-height:1.35; }
+  footer { max-width:900px; margin:0 auto; padding:10px 24px 30px; font-size:13px; color:#888; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Interaktive Statistik</h1>
+  <p>Kleine Animationen zum Ausprobieren · FH JOANNEUM, Department Gesundheit</p>
+</header>
+<main>
+  <h2>Design of Experiments (DoE)</h2>
+  <div class="grid">
+    <a class="card" href="doe/a1b-spiel.html"><b>Spiel: Wo würdet ihr die Versuche setzen?</b><span>Optimum suchen, ohne die Fläche zu kennen. Mit Modell-Hilfe und DoE-Raster.</span></a>
+    <a class="card" href="doe/a2-wechselwirkung.html"><b>Wechselwirkung und Krümmung</b><span>Vom einfachen Modell zur gekrümmten Fläche, Term für Term.</span></a>
+    <a class="card" href="doe/a1-ofat-vs-doe.html"><b>OFAT gegen DoE</b><span>Wer findet die höchste Ausbeute mit weniger Versuchen?</span></a>
+    <a class="card" href="doe/a8-signal-rauschen.html"><b>Signal und Rauschen</b><span>Wann ist ein Effekt erkennbar? Streuung, Wiederholungen, Power.</span></a>
+    <a class="card" href="doe/a12-anova.html"><b>Was erklärt das Modell, was bleibt Fehler?</b><span>Quadratsummen und Freiheitsgrade in der ANOVA.</span></a>
+    <a class="card" href="doe/a6-ccd.html"><b>Central Composite Design</b><span>Ecken, Center Points und Sternpunkte Schritt für Schritt.</span></a>
+    <a class="card" href="doe/a9-fds.html"><b>Fraction of Design Space</b><span>Wie viel vom Versuchsraum ist genau genug?</span></a>
+  </div>
+</main>
+<footer>Alle Seiten laufen direkt im Browser, ohne Anmeldung.</footer>
+</body>
+</html>
