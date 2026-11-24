@@ -18,7 +18,8 @@
   a.card:hover, a.card:focus { background:#FFF4E0; outline:none; }
   .card b { display:block; font-size:18px; margin-bottom:4px; color:var(--g3); }
   .card span { font-size:15px; line-height:1.35; }
-  footer { max-width:900px; margin:0 auto; padding:10px 24px 30px; font-size:13px; color:#888; }
+  footer { max-width:900px; margin:0 auto; padding:10px 24px 30px; font-size:13px; color:#888; line-height:1.5; }
+  footer a { color:var(--a2); }
 </style>
 </head>
 <body>
@@ -37,7 +38,24 @@
     <a class="card" href="a6-ccd.html"><b>Central Composite Design</b><span>Ecken, Center Points und Sternpunkte Schritt für Schritt.</span></a>
     <a class="card" href="a9-fds.html"><b>Fraction of Design Space</b><span>Wie viel vom Versuchsraum ist genau genug?</span></a>
   </div>
+
+  <h2>Multivariate Statistik (DATMAN) · <a href="datman-index.html" style="color:inherit;font-size:16px">nur DATMAN</a></h2>
+  <div class="grid">
+    <a class="card" href="datman-a7-eigenvektoren.html"><b>Eigenvectors and eigenvalues</b><span>Turn a vector and see when the matrix only stretches it.</span></a>
+    <a class="card" href="datman-a1-euklid-mahalanobis.html"><b>Euclidean vs. Mahalanobis distance</b><span>Two samples, equally far away. Are they equally unusual?</span></a>
+    <a class="card" href="datman-a2-pca-drehung.html"><b>PCA as a rotation</b><span>One number instead of two: body weight and height become body mass.</span></a>
+    <a class="card" href="datman-a4-plsda-zufall.html"><b>PLS-DA: real difference or noise?</b><span>Training, test, permutation test and data leakage on Iris and simulated LC-MS data.</span></a>
+    <a class="card" href="datman-a10-overfitting.html"><b>Overfitting: training, validation and test</b><span>Degrees of freedom as a bank account, model complexity, test data in the vault, cross-validation.</span></a>
+    <a class="card" href="datman-a9-schwelle-roc.html"><b>Cut-off, confusion matrix and ROC</b><span>Sensitivity, specificity, PPV, ROC and AUC, prevalence, F1 for unbalanced groups.</span></a>
+    <a class="card" href="datman-a11-knn.html"><b>k-nearest neighbours (kNN)</b><span>Ask the closest patients: k, standardizing, unequal groups, Mahalanobis and outliers.</span></a>
+    <a class="card" href="datman-a8-svm.html"><b>Support Vector Machines (SVM)</b><span>Cut-off, margin and support vectors, the penalty C and the kernel trick.</span></a>
+    <a class="card" href="datman-a12-ann.html"><b>Neural network playground</b><span>Two hidden nodes bend a curve: weights, biases, softplus and training.</span></a>
+    <a class="card" href="datman-a6-dendrogramm.html"><b>Hierarchical clustering</b><span>Distance matrix and dendrogram step by step, with three linkage rules.</span></a>
+    <a class="card" href="datman-a5-kmeans.html"><b>k-means step by step</b><span>Assign, move, repeat. Start points, WCSS and the elbow.</span></a>
+  </div>
 </main>
-<footer>Alle Seiten laufen direkt im Browser, ohne Anmeldung.</footer>
+<footer>Alle Seiten laufen direkt im Browser, ohne Anmeldung.<br>
+© 2026 Dalibor Jeremic, FH JOANNEUM · Lizenz: <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.de" rel="license">CC BY-NC-SA 4.0</a> (Namensnennung, nicht kommerziell, Weitergabe unter gleichen Bedingungen).<br>
+Erstellt mit Unterstützung von KI (Claude, Anthropic); Inhalte fachlich geprüft vom Autor.</footer>
 </body>
 </html>
