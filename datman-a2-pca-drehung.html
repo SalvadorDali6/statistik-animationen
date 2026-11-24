@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCA as a rotation</title>
+<style>
+/* A2 v4: PCA as a rotation. v4: explains total = var(BW) + var(BH)., with the data of slides 148-152 (6 persons, body weight BW in kg,
+   body height BH in cm). Body mass BM = α1·BW + α2·BH. Story as on the slides:
+   mean (0.5/0.5, var 63.5) -> sum (1/1, var 254.2) -> rule α1² + α2² = 1, turn the line ->
+   why the largest spread -> PC1 (0.81/0.59, var 129.9, 94 %) -> units cm / m / standardized
+   (slide 164) and free mode. Optional covariance matrix (off by default). Accent = FH #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent-soft:rgba(246,164,32,.22); --cloud:#5f6873; --blue:#2f6db5;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046; --cloud:#a3abb4; --blue:#6aa2e6;}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1180px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.q{font-size:1.2rem;font-weight:600;margin:4px 0 12px;max-width:62ch}
+.bar{display:flex;flex-direction:column;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.row{display:flex;gap:10px 18px;flex-wrap:wrap;align-items:center}
+.row[hidden],.seg[hidden],[hidden]{display:none!important}
+.row .ctl{flex:1 1 260px}
+.lbl{font-weight:600;color:var(--muted)}
+.seg{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.9rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:4px 0 0}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:110px}
+.status p{margin:0;font-size:1.12rem;max-width:62ch}
+.nums{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.8rem;white-space:nowrap}
+.nums .v{font-size:1.15rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.nums .xl{font-size:2.1rem;font-weight:700;color:var(--ink)}
+.grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:12px}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0}
+.card h2{font-size:1.02rem;font-weight:650;margin:0 0 2px}
+.card p.hint{margin:2px 0 8px;color:var(--muted);font-size:.9rem}
+canvas{display:block;width:100%;height:auto;touch-action:pan-y}
+#sc{aspect-ratio:1/1}
+#cv{aspect-ratio:600/330}
+table.data{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+table.data th,table.data td{padding:4px 8px;text-align:right;border-bottom:1px solid var(--line);font-size:1rem}
+table.data th{font-size:.85rem;color:var(--muted);font-weight:600}
+table.data th:first-child,table.data td:first-child{text-align:left}
+table.data td.bm{font-weight:700;background:var(--accent-soft)}
+table.data tr.var td{font-weight:650;border-top:2px solid var(--ink);border-bottom:none}
+table.data tr.var td.bm{background:var(--accent)}
+.formula{font-size:1.1rem;font-weight:600;margin:8px 0 2px}
+.formula .a{background:var(--accent-soft);border-radius:4px;padding:0 4px;font-variant-numeric:tabular-nums}
+.covcard[hidden]{display:none}
+table.mat{border-collapse:collapse;margin:6px 0 8px}
+table.mat td{padding:6px 18px;font-variant-numeric:tabular-nums;font-size:1.1rem;text-align:center;border-left:2.5px solid var(--ink);border-right:2.5px solid var(--ink)}
+.fx{font-size:1rem;margin:4px 0 0}
+.fx span{font-variant-numeric:tabular-nums;font-weight:650}
+@media (max-width:900px){.grid{grid-template-columns:1fr}.status{grid-template-columns:1fr}.nums{justify-content:flex-start}.nums div{text-align:left}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>PCA as a rotation</h1>
+    <p class="q">Can we describe each person with one number instead of two, and lose as little information as possible?</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="row">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="row" id="rotRow" hidden>
+    <div class="ctl">
+      <label for="ang">Direction of the line <output id="angOut"></output></label>
+      <input id="ang" type="range" min="0" max="180" step="0.5" value="45">
+    </div>
+    <div class="seg" role="group" aria-label="Combinations from the slides">
+      <span class="lbl">Try α1 / α2:</span>
+      <button id="t55" type="button">0.5 / 0.5</button>
+      <button id="t11" type="button">1 / 1</button>
+      <button id="t86" type="button">0.8 / 0.6</button>
+      <button id="pc1" type="button">Find PC1</button>
+    </div>
+  </div>
+  <div class="row" id="unitRow" hidden>
+    <div class="seg" role="group" aria-label="Units">
+      <span class="lbl">Body height in</span>
+      <button id="mCm" type="button" aria-pressed="true">cm</button>
+      <button id="mM" type="button" aria-pressed="false">m</button>
+      <button id="mStd" type="button" aria-pressed="false">both standardized</button>
+    </div>
+    <button id="covBtn" type="button" aria-pressed="false">Show covariance matrix</button>
+  </div>
+</div>
+
+<div class="status">
+  <p id="say"></p>
+  <div class="nums">
+    <div><div class="k">Loadings α1, α2</div><div class="v" id="nA">–</div></div>
+    <div><div class="k">Variance of BM</div><div class="v" id="nV">–</div></div>
+    <div><div class="k">Share of total variance (BW + BH)</div><div class="v xl" id="nS">–</div></div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2 id="scTitle">6 persons</h2>
+    <p class="hint" id="scHint"></p>
+    <canvas id="sc" width="640" height="640" tabindex="0" aria-label="Scatter plot of body weight and body height with the line of the new variable"></canvas>
+  </div>
+  <div class="col">
+    <div class="card">
+      <h2>Body mass for each person</h2>
+      <p class="formula" id="formula"></p>
+      <table class="data" aria-label="Data and body mass">
+        <thead><tr><th>Person</th><th>BW (kg)</th><th id="bhHead">BH (cm)</th><th>BM</th></tr></thead>
+        <tbody id="tb"></tbody>
+      </table>
+    </div>
+    <div class="card" id="curveCard" hidden>
+      <h2>Share of total variance per direction</h2>
+      <p class="hint">Peak = PC1. The orange ring follows the line.</p>
+      <canvas id="cv" width="600" height="330" aria-label="Share of variance as a function of the direction"></canvas>
+    </div>
+    <div class="card covcard" id="covCard" hidden>
+      <h2>Covariance matrix S</h2>
+      <p class="hint">The variance of BM can be computed from S alone.</p>
+      <table class="mat" aria-label="Covariance matrix"><tr><td id="c00"></td><td id="c01"></td></tr><tr><td id="c10"></td><td id="c11"></td></tr></table>
+      <p class="fx">Var(BM) = α1² · s11 + 2 · α1 · α2 · s12 + α2² · s22 = <span id="fx"></span></p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var BW=[65,55,70,80,60,75], BH=[170,165,175,180,160,172], N=6, PI=Math.PI, LAST=5;
+var W=640, H=640, PD=48;
+var st={step:0,theta:PI/4,scale:1,mode:'cm',cov:false}, anim=null;
+var Xr=[], mu=[0,0], S=[[1,0],[0,1]], Wd=18;
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function f(x,k){return (Math.abs(x)<0.5*Math.pow(10,-k)?0:x).toFixed(k).replace("-","−")}
+function sd(a){var m=a.reduce(function(s,x){return s+x},0)/a.length;return Math.sqrt(a.reduce(function(s,x){return s+(x-m)*(x-m)},0)/(a.length-1))}
+
+/* data in the chosen units; S from the points (n − 1) */
+function data(){
+  var y=BH.map(function(v){return st.mode==='m'?v/100:v}), x=BW.slice();
+  if(st.mode==='std'){var mx=67.5,my=BH.reduce(function(s,v){return s+v},0)/N,sx=sd(BW),sy=sd(BH);
+    x=BW.map(function(v){return (v-mx)/sx});y=BH.map(function(v){return (v-my)/sy})}
+  Xr=x.map(function(v,i){return [v,y[i]]});
+  mu=[0,0];Xr.forEach(function(p){mu[0]+=p[0]/N;mu[1]+=p[1]/N});
+  var a=0,b=0,c=0;Xr.forEach(function(p){var u=p[0]-mu[0],v=p[1]-mu[1];a+=u*u;b+=u*v;c+=v*v});
+  S=[[a/(N-1),b/(N-1)],[b/(N-1),c/(N-1)]];
+  Wd=st.mode==='std'?2.4:18;
+}
+function alpha(){return [st.scale*Math.cos(st.theta),st.scale*Math.sin(st.theta)]}
+function varA(a){return a[0]*a[0]*S[0][0]+2*a[0]*a[1]*S[0][1]+a[1]*a[1]*S[1][1]}
+function total(){return S[0][0]+S[1][1]}
+function unitOK(){return Math.abs(st.scale-1)<1e-9}
+function pc1(){var t=0.5*Math.atan2(2*S[0][1],S[0][0]-S[1][1]);if(t<0)t+=PI;return t}
+function bm(i,a){return a[0]*Xr[i][0]+a[1]*Xr[i][1]}
+function unitY(){return st.mode==='m'?"m":(st.mode==='std'?"z":"cm")}
+
+function dotG(g,x,y,r,fill,stroke,lw){g.beginPath();g.arc(x,y,r,0,2*Math.PI);g.fillStyle=fill;g.fill();if(stroke){g.lineWidth=lw||2;g.strokeStyle=stroke;g.stroke()}}
+function label(g,t,x,y,col,al,bl,sz){g.font="600 "+sz+"px "+FONT;g.textAlign=al;g.textBaseline=bl;g.lineWidth=6;g.lineJoin="round";g.strokeStyle=css("--panel");g.strokeText(t,x,y);g.fillStyle=col;g.fillText(t,x,y)}
+
+function drawScatter(){
+  var c=$("sc"),g=c.getContext("2d"),U=Math.max(1,Math.min(1.7,520/(c.clientWidth||640)));
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),cloudC=css("--cloud"),panel=css("--panel"),blue=css("--blue");
+  var sc=(W-2*PD)/(2*Wd);
+  /* centered plot: 0 = the average person */
+  function px(x){return W/2+(x-mu[0])*sc}
+  function py(y){return H/2-(y-mu[1])*sc}
+  var a=alpha(),n=Math.hypot(a[0],a[1]),w=[a[0]/n,a[1]/n];
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  var tick=st.mode==='std'?1:5;
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();
+  for(var k=-Math.floor(Wd/tick);k<=Math.floor(Wd/tick);k++){g.moveTo(px(mu[0]+k*tick),py(mu[1]-Wd));g.lineTo(px(mu[0]+k*tick),py(mu[1]+Wd));g.moveTo(px(mu[0]-Wd),py(mu[1]+k*tick));g.lineTo(px(mu[0]+Wd),py(mu[1]+k*tick))}
+  g.stroke();
+  g.strokeStyle=muted;g.lineWidth=2;g.beginPath();g.moveTo(px(mu[0]-Wd),py(mu[1]));g.lineTo(px(mu[0]+Wd),py(mu[1]));g.moveTo(px(mu[0]),py(mu[1]-Wd));g.lineTo(px(mu[0]),py(mu[1]+Wd));g.stroke();
+  g.font=Math.round(17*U)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";
+  var lab=st.mode==='std'?[-2,-1,1,2]:[-15,-10,-5,5,10,15];
+  lab.forEach(function(k){g.fillText(String(k).replace("-","−"),px(mu[0]+k),py(mu[1])+6)});
+  g.textAlign="right";g.textBaseline="middle";lab.forEach(function(k){g.fillText(String(k).replace("-","−"),px(mu[0])-8,py(mu[1]+k))});
+  label(g,st.mode==='std'?"BW (z)":"BW − mean (kg)",W-PD+30,py(mu[1])+30*U,ink,"right","top",Math.round(19*U));
+  label(g,st.mode==='std'?"BH (z)":"BH − mean ("+unitY()+")",px(mu[0])+10,PD-30,ink,"left","top",Math.round(19*U));
+  /* line of the new variable BM, projections and scores */
+  var L=Wd*1.6;
+  g.save();g.beginPath();g.rect(px(mu[0]-Wd),py(mu[1]+Wd),2*Wd*sc,2*Wd*sc);g.clip();
+  if(st.step>=1){
+    g.strokeStyle=muted;g.lineWidth=1.5;g.globalAlpha=0.7;g.setLineDash([5,5]);g.beginPath();
+    Xr.forEach(function(p){var t=(p[0]-mu[0])*w[0]+(p[1]-mu[1])*w[1];g.moveTo(px(p[0]),py(p[1]));g.lineTo(px(mu[0]+t*w[0]),py(mu[1]+t*w[1]))});
+    g.stroke();g.setLineDash([]);g.globalAlpha=1;
+    g.strokeStyle=acc;g.lineWidth=5;g.beginPath();g.moveTo(px(mu[0]-L*w[0]),py(mu[1]-L*w[1]));g.lineTo(px(mu[0]+L*w[0]),py(mu[1]+L*w[1]));g.stroke();
+    Xr.forEach(function(p){var t=(p[0]-mu[0])*w[0]+(p[1]-mu[1])*w[1];dotG(g,px(mu[0]+t*w[0]),py(mu[1]+t*w[1]),6*U,acc,ink,1.5)});
+    /* label near the lower end of the line (free of persons), on its upper left side */
+    var nx=-w[1],ny=w[0],lx=mu[0]-0.9*Wd*w[0]+nx*0.11*Wd,ly=mu[1]-0.9*Wd*w[1]+ny*0.11*Wd;
+    label(g,"BM",px(lx),py(ly),ink,"center","middle",Math.round(22*U));
+  }
+  /* PC1 as a dashed reference once found */
+  if(st.step>=4){var t1=pc1(),wp=[Math.cos(t1),Math.sin(t1)];
+    g.setLineDash([10,7]);g.strokeStyle=ink;g.lineWidth=2;g.beginPath();g.moveTo(px(mu[0]-L*wp[0]),py(mu[1]-L*wp[1]));g.lineTo(px(mu[0]+L*wp[0]),py(mu[1]+L*wp[1]));g.stroke();g.setLineDash([]);
+    var qx=mu[0]-0.9*Wd*wp[0]+wp[1]*0.11*Wd,qy=mu[1]-0.9*Wd*wp[1]-wp[0]*0.11*Wd;label(g,"PC1",px(qx),py(qy),ink,"center","middle",Math.round(19*U))}
+  g.restore();
+  /* persons */
+  Xr.forEach(function(p,i){dotG(g,px(p[0]),py(p[1]),13*U,cloudC,panel,2);
+    g.font="700 "+Math.round(17*U)+"px "+FONT;g.fillStyle=panel;g.textAlign="center";g.textBaseline="middle";g.fillText(String(i+1),px(p[0]),py(p[1])+0.5)});
+  /* centroid */
+  var cx=px(mu[0]),cy=py(mu[1]);g.strokeStyle=blue;g.lineWidth=3;g.beginPath();g.moveTo(cx-9,cy);g.lineTo(cx+9,cy);g.moveTo(cx,cy-9);g.lineTo(cx,cy+9);g.stroke();
+}
+
+function drawCurve(){
+  var c=$("cv"),g=c.getContext("2d"),CW=600,CH=330;
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),panel=css("--panel");
+  var L=74,R=CW-20,T=20,B=CH-58;
+  function xx(d){return L+d/180*(R-L)}function yy(s){return B-s*(B-T)}
+  g.fillStyle=panel;g.fillRect(0,0,CW,CH);
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();
+  [0,0.25,0.5,0.75,1].forEach(function(s){g.moveTo(L,yy(s));g.lineTo(R,yy(s))});[0,45,90,135,180].forEach(function(d){g.moveTo(xx(d),T);g.lineTo(xx(d),B)});g.stroke();
+  g.font="17px "+FONT;g.fillStyle=muted;g.textAlign="right";g.textBaseline="middle";
+  [0,0.5,1].forEach(function(s){g.fillText(Math.round(s*100)+" %",L-10,yy(s))});
+  g.textAlign="center";g.textBaseline="top";[0,45,90,135,180].forEach(function(d){g.fillText(d+"°",xx(d),B+8)});
+  g.fillStyle=ink;g.font="600 17px "+FONT;g.fillText("Direction of the line",(L+R)/2,B+32);
+  g.beginPath();for(var j=0;j<=180;j++){var s=varA([Math.cos(j*PI/180),Math.sin(j*PI/180)])/total();if(j)g.lineTo(xx(j),yy(s));else g.moveTo(xx(j),yy(s))}
+  g.strokeStyle=ink;g.lineWidth=3.5;g.lineJoin="round";g.stroke();
+  var p=pc1(),pd=p*180/PI,ps=varA([Math.cos(p),Math.sin(p)])/total();
+  dotG(g,xx(pd),yy(ps),8,acc,ink,2.5);
+  label(g,"PC1",xx(pd)+(pd>120?-12:12),yy(ps)+4,ink,pd>120?"right":"left","top",17);
+  var cur=st.theta*180/PI;dotG(g,xx(cur),yy(varA([Math.cos(st.theta),Math.sin(st.theta)])/total()),7,panel,acc,4);
+}
+
+/* what "total" means: variance of BW plus variance of BH, in the current units */
+function totTxt(){var d=st.mode==='m'?4:(st.mode==='std'?2:1);return "total = variance of BW + variance of BH = "+f(S[0][0],d)+" + "+f(S[1][1],d)+" = "+f(total(),d)}
+function say(){
+  var a=alpha(),v=varA(a),p=pc1(),pa=[Math.cos(p),Math.sin(p)],ps=varA(pa)/total();
+  switch(st.step){
+    case 0:return "Each dot is one person: body weight (BW) and body height (BH), drawn around the average person (blue cross). Heavier persons tend to be taller. Idea: one new variable, body mass BM = α1·BW + α2·BH. The numbers α1 and α2 are the loadings: how much each variable counts.";
+    case 1:return "First try: the mean, α1 = α2 = 0.5. Each person lands on the orange line. That position is the person's new value, the score (here: BM, see table). The spread of the scores is the variance of BM: "+f(v,1)+".";
+    case 2:return "Second try: the sum, α1 = α2 = 1. Same line, but the variance is four times larger ("+f(v,1)+"). Bigger loadings only stretch the scores. To compare fairly, PCA fixes their size: α1² + α2² = 1.";
+    case 3:return "With α1² + α2² = 1 only the direction of the line is left to choose. Turn it with the slider and watch the spread of the scores. Try 0.8 / 0.6 from the slides: variance "+f(varA([0.8,0.6]),1)+".";
+    case 4:return "Why the largest spread? BM should keep the persons as different as they really are. Across the cloud all scores bunch together, and BM can hardly tell who is who. Along the cloud the differences survive. The best direction is PC1: α1 = "+f(pa[0],2)+", α2 = "+f(pa[1],2)+", variance "+f(varA(pa),1)+", that is "+f(ps*100,0)+"\u00a0% of the total ("+totTxt()+").";
+    default:
+      if(st.mode==='m')return "Body height in m: its numbers are 100 times smaller, its variance is tiny ("+f(S[1][1],4)+"). PC1 then follows body weight alone (α1 = "+f(pa[0],2)+", α2 = "+f(pa[1],2)+"). The result depends on the units, not on the persons.";
+      if(st.mode==='std')return "Both variables standardized (mean 0, sd 1): now no unit can dominate. PC1 weighs both equally (α1 = α2 = "+f(pa[0],2)+"). That is why the data are usually standardized before a PCA.";
+      return "Units matter: switch body height to m and see what happens to PC1. Then try both standardized.";
+  }
+}
+
+function render(){
+  data();
+  var s=st.step,a=alpha(),v=varA(a),ok=unitOK();
+  $("rotRow").hidden=s<3;$("unitRow").hidden=s<5;$("curveCard").hidden=s<3;
+  $("ang").value=st.theta*180/PI;$("angOut").textContent=f(st.theta*180/PI,1)+"°";
+  $("nA").textContent=s>=1?f(a[0],2)+", "+f(a[1],2):"–";
+  $("nV").textContent=s>=1?f(v,1):"–";
+  $("nS").textContent=(s>=1&&ok)?f(v/total()*100,1)+"\u00a0%":"–";
+  /* table like on the slides: BW, BH, BM per person, variance in the last row */
+  var rows="";for(var i=0;i<N;i++)rows+="<tr><td>"+(i+1)+"</td><td>"+f(Xr[i][0],st.mode==='std'?2:0)+"</td><td>"+f(Xr[i][1],st.mode==='m'?2:(st.mode==='std'?2:0))+"</td><td class='bm'>"+(s>=1?f(bm(i,a),1):"–")+"</td></tr>";
+  rows+="<tr class='var'><td>Var</td><td>"+f(S[0][0],st.mode==='std'?2:1)+"</td><td>"+f(S[1][1],st.mode==='m'?4:(st.mode==='std'?2:1))+"</td><td class='bm'>"+(s>=1?f(v,1):"–")+"</td></tr>";
+  $("tb").innerHTML=rows;$("bhHead").textContent="BH ("+unitY()+")";$("formula").innerHTML=s>=1?"BM = <span class='a'>"+f(a[0],2)+"</span>·BW + <span class='a'>"+f(a[1],2)+"</span>·BH"+(s>=2?" &nbsp; <span style='color:var(--muted);font-weight:400'>α1² + α2² = "+f(a[0]*a[0]+a[1]*a[1],2)+"</span>":""):"BM = α1·BW + α2·BH";
+  $("scTitle").textContent=["6 persons","Try 1: the mean","Try 2: the sum","Turn the line","The best direction: PC1","Units and free mode"][s];
+  $("scHint").textContent=s>=3?"Orange line: direction of BM. Dashed: each person's way onto the line.":(s>=1?"Orange dots: the scores (each person's BM on the line).":"Numbers: persons 1 to 6 as in the table.");
+  $("say").textContent=say();
+  $("stepno").textContent="Step "+(s+1)+" of "+(LAST+1);$("back").disabled=s===0;$("next").disabled=s===LAST;
+  ["mCm","mM","mStd"].forEach(function(id,i){$(id).setAttribute("aria-pressed",st.mode===['cm','m','std'][i]?"true":"false")});
+  $("covCard").hidden=!(s===LAST&&st.cov);$("covBtn").setAttribute("aria-pressed",st.cov?"true":"false");$("covBtn").textContent=st.cov?"Hide covariance matrix":"Show covariance matrix";
+  if(s===LAST&&st.cov){var d=st.mode==='m'?4:2;$("c00").textContent=f(S[0][0],d);$("c01").textContent=f(S[0][1],d);$("c10").textContent=f(S[1][0],d);$("c11").textContent=f(S[1][1],d);$("fx").textContent=f(v,2)}
+  drawScatter();if(s>=3)drawCurve();
+}
+
+function stopAnim(){if(anim){cancelAnimationFrame(anim);anim=null}}
+function turnTo(th,scale){stopAnim();var from=st.theta,fs=st.scale,t0=null,dur=900;
+  function tick(now){if(t0===null)t0=now;var t=Math.min(1,(now-t0)/dur),e=t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;st.theta=from+(th-from)*e;st.scale=fs+(scale-fs)*e;render();anim=t<1?requestAnimationFrame(tick):null}
+  anim=requestAnimationFrame(tick)}
+function go(k){stopAnim();st.step=Math.max(0,Math.min(LAST,k));
+  if(st.step<=1){st.mode='cm';st.theta=PI/4;st.scale=Math.SQRT1_2}
+  if(st.step===2){st.mode='cm';st.theta=PI/4;st.scale=Math.SQRT2}
+  if(st.step===3){st.mode='cm';st.theta=PI/4;st.scale=1}
+  if(st.step===4){st.mode='cm';render();data();turnTo(pc1(),1);return}
+  render()}
+
+$("ang").addEventListener("input",function(e){stopAnim();st.theta=+e.target.value*PI/180;st.scale=1;render()});
+$("t55").addEventListener("click",function(){turnTo(PI/4,Math.SQRT1_2)});
+$("t11").addEventListener("click",function(){turnTo(PI/4,Math.SQRT2)});
+$("t86").addEventListener("click",function(){turnTo(Math.atan2(0.6,0.8),1)});
+$("pc1").addEventListener("click",function(){data();turnTo(pc1(),1)});
+$("mCm").addEventListener("click",function(){st.mode='cm';data();turnTo(pc1(),1)});
+$("mM").addEventListener("click",function(){st.mode='m';data();turnTo(pc1(),1)});
+$("mStd").addEventListener("click",function(){st.mode='std';data();turnTo(pc1(),1)});
+$("covBtn").addEventListener("click",function(){st.cov=!st.cov;render()});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){st.cov=false;go(0)});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+window.addEventListener("resize",render);
+go(0);
+})();
+</script>
+</body>
+</html>

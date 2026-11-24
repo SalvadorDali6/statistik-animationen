@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>k-nearest neighbours (kNN)</title>
+<style>
+/* A11 v3: standardized mode shows the axes as z-values (1 = one standard deviation).
+   A11 v2: k at most 19 with 20 known patients (no 10 : 10 tie), text on very large k.
+   A11 v1: k-nearest neighbours as a picture (the table calculation stays on the slides).
+   Data: 10 healthy and 10 sick people, blood pressure and body temperature (slide table).
+   Steps: question -> k = 5 as on the slides (3 sick : 2 healthy) -> drag + k with coloured areas ->
+   units trap and standardizing -> unequal groups (30 sick, 10 healthy) -> Mahalanobis with 95 % ellipses ->
+   outlier in the healthy group. Link with ?step=N (1-7). Accent = FH #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent2:#CB6413; --accent-soft:rgba(246,164,32,.22);
+  --red:#d7261e; --blue:#1f5fb4; --grey:#8a929b;
+  --tred:rgba(215,38,30,.10); --tblue:rgba(31,95,180,.10);
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046;
+    --red:#f0736b; --blue:#6aa2e6; --grey:#8d959e; --tred:rgba(240,115,107,.12); --tblue:rgba(106,162,230,.12);}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1180px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto minmax(220px,1fr);gap:12px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.seg>span{font-weight:600;color:var(--muted)}
+.seg[hidden],.ctl[hidden]{display:none}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button:disabled{opacity:.45;cursor:default}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:4px 0 0}
+.stepno{color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:104px}
+.status p{margin:0;font-size:1.12rem;max-width:68ch}
+.status strong{font-weight:750}
+.status .cl{display:block;margin-top:8px;font-style:italic;color:var(--muted)}
+.r{color:var(--red)} .b{color:var(--blue)}
+.nums{display:flex;gap:24px;flex-wrap:wrap}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.8rem;white-space:nowrap}
+.nums .v{font-size:1.4rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0;max-width:820px;margin:0 auto}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 2px}
+.card p{margin:2px 0 8px;color:var(--muted);font-size:.92rem}
+canvas{display:block;width:100%;height:auto;touch-action:pan-y}
+canvas.free{touch-action:none}
+@media (max-width:860px){.bar,.status{grid-template-columns:1fr}.nums{justify-content:flex-start}.nums div{text-align:left}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>k-nearest neighbours (kNN)</h1>
+    <p class="sub">Classify a new patient by asking the closest known patients.</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="ctl" id="kBox" hidden>
+    <label for="k">Number of neighbours k <output id="kOut"></output></label>
+    <input id="k" type="range" min="1" max="29" step="2" value="5">
+  </div>
+  <div class="seg" id="stdBox" hidden>
+    <span>Distance in:</span>
+    <button id="raw" type="button" aria-pressed="true">original units (mmHg, °C)</button>
+    <button id="std" type="button" aria-pressed="false">standardized</button>
+  </div>
+  <div class="seg" id="outBox" hidden>
+    <span>Healthy group:</span>
+    <button id="noOut" type="button" aria-pressed="false">as measured</button>
+    <button id="withOut" type="button" aria-pressed="true">with one extreme outlier</button>
+  </div>
+</div>
+
+<div class="status">
+  <p id="say"></p>
+  <div class="nums">
+    <div><div class="k" id="k1"></div><div class="v" id="v1">–</div></div>
+    <div><div class="k" id="k2"></div><div class="v" id="v2">–</div></div>
+    <div><div class="k" id="k3"></div><div class="v" id="v3">–</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="title"></h2>
+  <p id="legend"></p>
+  <canvas id="cv" width="760" height="560" style="aspect-ratio:760/560" aria-label="Blood pressure and body temperature"></canvas>
+</div>
+
+<script>
+(function(){
+"use strict";
+var W=760,H=560,LAST=6;
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+var U=1,UC=1;function fs(n){return Math.round(n*U)}
+function setU(){U=Math.max(1,Math.min(1.7,640/Math.max(320,Math.min(window.innerWidth,900)-40)));UC=Math.min(U,1.3);
+  var nw=window.innerWidth<620?580:760;if(nw!==W){W=nw;var c=$("cv");c.width=W;c.style.aspectRatio=W+"/"+H}if(W<760){U=Math.min(U,1.3);UC=Math.min(UC,1.15)}}
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function f1(x){return x.toFixed(1)} function f2(x){return x.toFixed(2)}
+
+/* ---------- data (slide table) ---------- */
+var HEALTHY=[[122.4,36.5],[120.36,36.8],[124.44,36.7],[126.48,36.6],[127.5,36.9],[125.46,36.8],[128.52,37],[123.42,36.5],[121.38,36.7],[122.4,36.8]];
+var SICK=[[130,37.1],[131.1,37.3],[134.9,37.2],[135.85,37],[132.05,37.1],[133.95,37.3],[136.8,37.2],[134.9,37.1],[133,37.3],[133.95,37.2]];
+var EXTRA=[[133,37.25],[129.1,37.2],[127,37.31],[128.9,37.18],[129.6,37.03],[132.4,37.25],[130.5,37.13],[130.2,36.96],[133.1,36.75],[129.9,37.14],[128.7,36.93],[132.5,36.96],[128.2,37.17],[129.4,37.09],[134.2,37.11],[133.2,37.2],[125.1,37.08],[130.3,36.98],[128.9,37.16],[130.5,37.13]];
+var OUTLIER=[141,36.9];
+var START={0:[130,37],1:[130,37],2:[130,37],3:[130,37],4:[129,36.8],5:[130.5,36.9],6:[136.5,36.95]};
+var KSTEP={1:5,2:5,3:5,4:5};
+var DOM=[118,142,36.4,37.4];
+
+var st={step:0,k:5,std:false,out:true,p:[130,37],anim:null};
+function data(){var s=st.step;var sick=s===4?SICK.concat(EXTRA):SICK,healthy=(s===6&&st.out)?HEALTHY.concat([OUTLIER]):HEALTHY;
+  return healthy.map(function(p){return {x:p[0],y:p[1],c:0,out:p===OUTLIER}}).concat(sick.map(function(p){return {x:p[0],y:p[1],c:1}}))}
+function useStd(){return st.step===3?st.std:st.step===4}
+function means(D){var n=D.length,m=[0,0];D.forEach(function(p){m[0]+=p.x/n;m[1]+=p.y/n});return m}
+function scales(D){if(!useStd())return [1,1];var n=D.length,m=[0,0],s=[0,0];D.forEach(function(p){m[0]+=p.x/n;m[1]+=p.y/n});D.forEach(function(p){s[0]+=Math.pow(p.x-m[0],2);s[1]+=Math.pow(p.y-m[1],2)});return [Math.sqrt(s[0]/(n-1)),Math.sqrt(s[1]/(n-1))]}
+function neighbours(q,D,k,sc){return D.map(function(p){return {p:p,d:Math.hypot((p.x-q[0])/sc[0],(p.y-q[1])/sc[1])}}).sort(function(a,b){return a.d-b.d}).slice(0,k)}
+function vote(nb){var s=nb.filter(function(n){return n.p.c===1}).length;return {sick:s,healthy:nb.length-s,call:s>nb.length/2?1:0}}
+/* Mahalanobis: group centre and covariance */
+function group(D,c){var P=D.filter(function(p){return p.c===c}),n=P.length,mx=0,my=0,a=0,b=0,d=0;P.forEach(function(p){mx+=p.x/n;my+=p.y/n});
+  P.forEach(function(p){a+=Math.pow(p.x-mx,2);b+=(p.x-mx)*(p.y-my);d+=Math.pow(p.y-my,2)});return {mx:mx,my:my,a:a/(n-1),b:b/(n-1),c:d/(n-1)}}
+function md(q,G){var det=G.a*G.c-G.b*G.b,dx=q[0]-G.mx,dy=q[1]-G.my;return Math.sqrt((G.c*dx*dx-2*G.b*dx*dy+G.a*dy*dy)/det)}
+var CHI95=Math.sqrt(5.991);
+
+/* ---------- drawing ---------- */
+function frame(){var L=Math.round(30+fs(16)*3.2),B=H-Math.round(30+fs(16)*2.2);return {L:L,R:W-18,T:16,B:B}}
+function X(v,F){return F.L+(v-DOM[0])/(DOM[1]-DOM[0])*(F.R-F.L)} function Y(v,F){return F.B-(v-DOM[2])/(DOM[3]-DOM[2])*(F.B-F.T)}
+function IX(px,F){return DOM[0]+(px-F.L)/(F.R-F.L)*(DOM[1]-DOM[0])} function IY(py,F){return DOM[2]+(F.B-py)/(F.B-F.T)*(DOM[3]-DOM[2])}
+function label(g,txt,x,y,col,size,weight,align,base,maxW){var sz=fs(size||18);g.font=(weight||"600")+" "+sz+"px "+FONT;
+  if(maxW)while(g.measureText(txt).width>maxW&&sz>10){sz--;g.font=(weight||"600")+" "+sz+"px "+FONT}g.textAlign=align||"left";g.textBaseline=base||"alphabetic";
+  g.lineJoin="round";g.lineWidth=6;g.strokeStyle=css("--panel");g.strokeText(txt,x,y);g.fillStyle=col;g.fillText(txt,x,y)}
+function draw(){
+  setU();var cv=$("cv"),g=cv.getContext("2d"),F=frame(),s=st.step,D=data(),sc=scales(D);
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),red=css("--red"),blue=css("--blue"),grey=css("--grey"),acc=css("--accent"),acc2=css("--accent2"),panel=css("--panel");
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  /* coloured areas: how a new patient at each spot would be called */
+  if(s>=2){var cell=8,GH=group(D,0),GS=group(D,1);
+    for(var px=F.L;px<F.R;px+=cell)for(var py=F.T;py<F.B;py+=cell){var q=[IX(px+cell/2,F),IY(py+cell/2,F)],call;
+      if(s>=5)call=md(q,GS)<md(q,GH)?1:0;else call=vote(neighbours(q,D,st.k,sc)).call;
+      g.fillStyle=call?css("--tred"):css("--tblue");g.fillRect(px,py,cell,cell)}}
+  /* grid and axes: original units, or z-values (standardized) */
+  var zs=useStd(),xt=[],yt=[];
+  if(zs){var mu=means(D);for(var z=Math.ceil((DOM[0]-mu[0])/sc[0]);z<=(DOM[1]-mu[0])/sc[0];z++)xt.push([mu[0]+z*sc[0],(z>0?"+":"")+z]);
+    for(z=Math.ceil((DOM[2]-mu[1])/sc[1]);z<=(DOM[3]-mu[1])/sc[1];z++)yt.push([mu[1]+z*sc[1],(z>0?"+":"")+z])}
+  else{for(var x=118;x<=142;x+=4)xt.push([x,String(x)]);for(var y=36.4;y<=37.401;y+=0.2)yt.push([y,y.toFixed(1)])}
+  g.strokeStyle=line;g.lineWidth=zs?1.5:1;g.beginPath();xt.forEach(function(t){g.moveTo(X(t[0],F),F.T);g.lineTo(X(t[0],F),F.B)});yt.forEach(function(t){g.moveTo(F.L,Y(t[0],F));g.lineTo(F.R,Y(t[0],F))});g.stroke();
+  g.strokeStyle=muted;g.lineWidth=2;g.strokeRect(F.L,F.T,F.R-F.L,F.B-F.T);
+  g.font=fs(15)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";xt.forEach(function(t){g.fillText(t[1],X(t[0],F),F.B+6)});
+  g.textAlign="right";g.textBaseline="middle";yt.forEach(function(t){g.fillText(t[1],F.L-6,Y(t[0],F))});
+  label(g,zs?"blood pressure (z: standard deviations from the mean)":"blood pressure (mmHg)",(F.L+F.R)/2,F.B+14+fs(15)+fs(10),ink,17,"600","center","middle",F.R-F.L);
+  g.save();g.translate(14+fs(8),(F.T+F.B)/2);g.rotate(-Math.PI/2);label(g,zs?"body temperature (z)":"body temperature (°C)",0,0,ink,17,"600","center","middle");g.restore();
+  var q=st.p,nb=(s>=1&&s<=4)?neighbours(q,D,s===1?5:st.k,sc):[];
+  /* step 4: neighbourhood "circle" (all points within the distance of the k-th neighbour) */
+  if(s===3&&nb.length){var r=nb[nb.length-1].d;g.save();g.beginPath();g.rect(F.L,F.T,F.R-F.L,F.B-F.T);g.clip();g.beginPath();
+    for(var a=0;a<=2*Math.PI+0.01;a+=0.04){var ex=X(q[0]+r*sc[0]*Math.cos(a),F),ey=Y(q[1]+r*sc[1]*Math.sin(a),F);if(a)g.lineTo(ex,ey);else g.moveTo(ex,ey)}
+    g.closePath();g.fillStyle="rgba(246,164,32,.18)";g.fill();g.strokeStyle=acc2;g.lineWidth=3;g.setLineDash([8,6]);g.stroke();g.setLineDash([]);g.restore()}
+  /* Mahalanobis ellipses and lines to the centres */
+  if(s>=5){[[group(D,0),blue],[group(D,1),red]].forEach(function(gc){var G=gc[0],col=gc[1],ev=eig(G);g.save();g.beginPath();g.rect(F.L,F.T,F.R-F.L,F.B-F.T);g.clip();g.beginPath();
+      for(var a=0;a<=2*Math.PI+0.01;a+=0.03){var u=CHI95*Math.sqrt(ev.l1)*Math.cos(a),v=CHI95*Math.sqrt(ev.l2)*Math.sin(a),ex=G.mx+u*ev.v1[0]+v*ev.v2[0],ey=G.my+u*ev.v1[1]+v*ev.v2[1];if(a)g.lineTo(X(ex,F),Y(ey,F));else g.moveTo(X(ex,F),Y(ey,F))}
+      g.closePath();g.strokeStyle=col;g.lineWidth=3;g.stroke();g.restore();
+      g.setLineDash([6,5]);g.strokeStyle=col;g.lineWidth=2;g.beginPath();g.moveTo(X(q[0],F),Y(q[1],F));g.lineTo(X(G.mx,F),Y(G.my,F));g.stroke();g.setLineDash([]);
+      g.beginPath();g.moveTo(X(G.mx,F),Y(G.my,F)-10);g.lineTo(X(G.mx,F)+10,Y(G.my,F));g.lineTo(X(G.mx,F),Y(G.my,F)+10);g.lineTo(X(G.mx,F)-10,Y(G.my,F));g.closePath();g.fillStyle=col;g.fill();g.lineWidth=2;g.strokeStyle=panel;g.stroke()})}
+  /* lines to the neighbours */
+  if(nb.length){g.strokeStyle=ink;g.lineWidth=2;nb.forEach(function(n){g.beginPath();g.moveTo(X(q[0],F),Y(q[1],F));g.lineTo(X(n.p.x,F),Y(n.p.y,F));g.stroke()})}
+  /* points */
+  D.forEach(function(p){var px=X(p.x,F),py=Y(p.y,F);g.beginPath();g.arc(px,py,8*UC,0,2*Math.PI);g.fillStyle=p.c?red:blue;g.fill();g.lineWidth=1.5;g.strokeStyle=panel;g.stroke();
+    if(p.out){g.beginPath();g.arc(px,py,15*UC,0,2*Math.PI);g.setLineDash([4,3]);g.lineWidth=2.5;g.strokeStyle=blue;g.stroke();g.setLineDash([]);label(g,"outlier",px-14,py-20,blue,15,"700","right","middle")}});
+  nb.forEach(function(n){g.beginPath();g.arc(X(n.p.x,F),Y(n.p.y,F),13*UC,0,2*Math.PI);g.lineWidth=3;g.strokeStyle=ink;g.stroke()});
+  /* new patient */
+  var call=null;if(s>=1&&s<=4)call=vote(nb).call;else if(s>=5){var GH2=group(D,0),GS2=group(D,1);call=md(q,GS2)<md(q,GH2)?1:0}
+  var col=call===null?grey:(call?red:blue),qx=X(q[0],F),qy=Y(q[1],F);
+  g.beginPath();g.moveTo(qx,qy-14*UC);g.lineTo(qx+4*UC,qy-4*UC);g.lineTo(qx+14*UC,qy-4*UC);g.lineTo(qx+6*UC,qy+3*UC);g.lineTo(qx+9*UC,qy+13*UC);g.lineTo(qx,qy+7*UC);g.lineTo(qx-9*UC,qy+13*UC);g.lineTo(qx-6*UC,qy+3*UC);g.lineTo(qx-14*UC,qy-4*UC);g.lineTo(qx-4*UC,qy-4*UC);g.closePath();
+  g.fillStyle=col;g.fill();g.lineWidth=2.5;g.strokeStyle=ink;g.stroke();
+  var lab=call===null?"new patient":"new patient → "+(call?"sick":"healthy");g.font="700 "+fs(18)+"px "+FONT;var right=qx+18+g.measureText(lab).width<W-6;
+  label(g,lab,qx+(right?18:-18),qy-20,col,18,"700",right?"left":"right","middle");
+  /* step 2: the 5 distances as on the slide table */
+  if(s===1){var bx=F.L+12,by=F.T+24;label(g,"5 nearest (distance):",bx,by,ink,16,"700","left","middle");
+    nb.forEach(function(n,i){label(g,f1(n.d)+"  "+(n.p.c?"sick":"healthy"),bx,by+fs(22)*(i+1),n.p.c?red:blue,16,"700","left","middle")})}
+}
+function eig(G){var tr=G.a+G.c,det=G.a*G.c-G.b*G.b,d=Math.sqrt(Math.max(0,tr*tr/4-det)),l1=tr/2+d,l2=tr/2-d,v1;
+  if(Math.abs(G.b)>1e-12)v1=[l1-G.c,G.b];else v1=G.a>=G.c?[1,0]:[0,1];var n=Math.hypot(v1[0],v1[1]);v1=[v1[0]/n,v1[1]/n];return {l1:l1,l2:Math.max(l2,1e-12),v1:v1,v2:[-v1[1],v1[0]]}}
+
+/* ---------- texts ---------- */
+var TITLES=["Sick or healthy?","Ask the 5 nearest neighbours","Move the patient, change k","Careful with units","Unequal groups","Mahalanobis: distance to each group","Mahalanobis and outliers"];
+function say(){
+  var s=st.step,D=data(),sc=scales(D),q=st.p;
+  switch(s){
+    case 0:return "A new patient comes in: blood pressure 130 mmHg, body temperature 37.0 °C. We already know 20 patients: 10 healthy (blue) and 10 sick (red). Is the new patient sick or healthy? Idea: look at the most similar known patients, the nearest neighbours.";
+    case 1:var v=vote(neighbours(q,D,5,sc));return "kNN with k = 5: measure the distance from the new patient to every known patient, sort, and take the 5 closest. They vote: "+v.sick+" sick, "+v.healthy+" healthy. The majority wins, so the new patient is called "+(v.call?"sick":"healthy")+". No model is built, the known data are the model.";
+    case 2:return "Drag the new patient and change k. The coloured background shows how a new patient on each spot would be called. With k = 1 a single patient decides, and the border becomes jumpy (sensitive to outliers). A larger k gives a smoother border. Use an odd k, so there is no tie. But if k gets close to the number of known patients (here 20), almost everybody votes, and the call hardly depends on where the patient is any more.";
+    case 3:var r=st.std;return "Look at the shape of the neighbourhood (dashed): "+(r?"now it is a round region.":"in original units it is a tall, thin strip. 1 °C counts as much as 1 mmHg, but temperatures differ by less than 1 °C, blood pressures by about 15 mmHg. The temperature hardly counts.")+" Switch to standardized: from each value the mean is subtracted and the result is divided by the standard deviation (z-value). Look at the axes: the points stay where they are, but now one step on each axis is one standard deviation, and both variables count equally. Other neighbours are chosen; with k = 1 the call even flips (original units: sick, standardized: healthy). **Standardize when variables have different units.**||In the Classification Learner, KNN has the option Standardize data.";
+    case 4:var v4=vote(neighbours(q,D,st.k,sc));return "Now 30 sick and only 10 healthy patients (standardized). The new patient is closer to the centre of the healthy group, but there are simply more sick patients around: with k = "+st.k+": "+v4.sick+" sick, "+v4.healthy+" healthy. Push k up: from k = 21 the bigger group always wins, wherever the patient is.";
+    case 5:var GH=group(D,0),GS=group(D,1);return "A different idea: measure the distance to the centre of each group (diamonds), in units of that group's own spread (Mahalanobis distance). The ellipses contain 95 % of each group. The new patient is closer to the sick group in plain distance, but lies inside the healthy ellipse: Mahalanobis distance "+f2(md(q,GH))+" to healthy, "+f2(md(q,GS))+" to sick, so healthy. Drag the patient.";
+    case 6:var GH6=group(D,0),GS6=group(D,1),c6=md(q,GS6)<md(q,GH6);return "One extreme outlier in the healthy group (141 mmHg) stretches the healthy ellipse far to the right. The new patient sits right next to the sick group, yet is called "+(c6?"sick":"healthy")+" (Mahalanobis distance "+f2(md(q,GH6))+" to healthy, "+f2(md(q,GS6))+" to sick). Switch the outlier off and on. **Mahalanobis is sensitive to outliers. Try both distances and compare them with cross-validation.**";
+  }
+}
+function nums(){var s=st.step,D=data(),sc=scales(D),q=st.p;
+  if(s===0)return [["Blood pressure","Temperature","Call"],[f1(q[0]),f2(q[1]),"?"]];
+  if(s<=4){var k=s===1?5:st.k,v=vote(neighbours(q,D,k,sc));return [["k","Votes sick : healthy","Call"],[String(k),v.sick+" : "+v.healthy,v.call?"sick":"healthy"]]}
+  var GH=group(D,0),GS=group(D,1),mh=md(q,GH),ms=md(q,GS);return [["MD to healthy","MD to sick","Call"],[f2(mh),f2(ms),ms<mh?"sick":"healthy"]];
+}
+function paint(t){t=t.replace(/\b(sick|red)\b/g,'<b class="r">$1</b>').replace(/\b(healthy|blue)\b/g,'<b class="b">$1</b>').replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");var p=t.split("||");return p[0]+(p[1]?'<span class="cl">'+p[1]+'</span>':"")}
+function legend(){var s=st.step;var L='<b class="b">●</b> healthy &nbsp; <b class="r">●</b> sick &nbsp; ★ new patient';
+  if(s>=1&&s<=4)L+=' &nbsp; ◯ neighbours';if(s>=2)L+=' &nbsp; background: how a new patient would be called';if(s>=5)L+=' &nbsp; ◆ group centre, ellipse = 95 % of the group';if(s>=2)L+=' &nbsp; · drag the patient';return L}
+
+/* ---------- render ---------- */
+function render(){
+  var s=st.step;if(st.k>(s===4?29:19))st.k=s===4?29:19;draw();
+  $("title").textContent=TITLES[s];$("legend").innerHTML=legend();$("say").innerHTML=paint(say());
+  var n=nums();[1,2,3].forEach(function(i){$("k"+i).textContent=n[0][i-1];$("v"+i).textContent=n[1][i-1]});
+  $("stepno").textContent="Step "+(s+1)+" of "+(LAST+1);$("back").disabled=s===0;$("next").disabled=s===LAST;
+  var kmax=s===4?29:19;$("k").max=kmax;if(st.k>kmax)st.k=kmax;$("kBox").hidden=!(s===2||s===3||s===4);$("k").value=st.k;$("kOut").textContent=st.k;
+  $("stdBox").hidden=s!==3;$("raw").setAttribute("aria-pressed",st.std?"false":"true");$("std").setAttribute("aria-pressed",st.std?"true":"false");
+  $("outBox").hidden=s!==6;$("noOut").setAttribute("aria-pressed",st.out?"false":"true");$("withOut").setAttribute("aria-pressed",st.out?"true":"false");
+  $("cv").classList.toggle("free",s>=2);
+}
+function go(n){n=Math.max(0,Math.min(LAST,n));st.step=n;st.p=START[n].slice();if(KSTEP[n])st.k=KSTEP[n];if(n===3)st.std=false;if(n===6)st.out=true;render()}
+
+/* ---------- dragging ---------- */
+var cv=$("cv"),drag=false;
+function pick(e){var r=cv.getBoundingClientRect();return [(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]}
+function near(pt){var F=frame();return Math.hypot(pt[0]-X(st.p[0],F),pt[1]-Y(st.p[1],F))<34*U}
+cv.addEventListener("pointerdown",function(e){if(st.step<2)return;var pt=pick(e);if(!near(pt))return;drag=true;try{cv.setPointerCapture(e.pointerId)}catch(err){}e.preventDefault()});
+cv.addEventListener("pointermove",function(e){var pt=pick(e);if(!drag){cv.style.cursor=(st.step>=2&&near(pt))?"grab":"default";return}
+  var F=frame();st.p=[Math.max(DOM[0]+0.3,Math.min(DOM[1]-0.3,IX(pt[0],F))),Math.max(DOM[2]+0.02,Math.min(DOM[3]-0.02,IY(pt[1],F)))];render();e.preventDefault()});
+function endDrag(){drag=false}
+cv.addEventListener("pointerup",endDrag);cv.addEventListener("pointercancel",endDrag);
+
+/* ---------- controls ---------- */
+$("k").addEventListener("input",function(e){st.k=+e.target.value;render()});
+$("raw").addEventListener("click",function(){st.std=false;render()});
+$("std").addEventListener("click",function(){st.std=true;render()});
+$("noOut").addEventListener("click",function(){st.out=false;render()});
+$("withOut").addEventListener("click",function(){st.out=true;render()});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){st.k=5;st.std=false;st.out=true;go(0)});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+var lastW=window.innerWidth;window.addEventListener("resize",function(){if(window.innerWidth===lastW)return;lastW=window.innerWidth;render()});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+var m=(location.search+location.hash).match(/step=(\d+)/);go(m?Math.max(1,Math.min(LAST+1,+m[1]))-1:0);
+})();
+</script>
+</body>
+</html>

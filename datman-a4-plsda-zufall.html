@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PLS-DA: real difference or noise?</title>
+<style>
+/* A4 v9: "real model" explained (trained with the true labels), sample count in the leakage text,
+   lower leakage chart explained in one line, free mode: when leakage hurts most.
+   A4 v8: leakage steps show the peak picking: difference (t) for all 1000 peaks with the 10 picked ones,
+   and for the 10 picked peaks the difference in training vs. test samples; flow diagram as one line.
+   A4 v7: new step 6 "Shuffling the labels" (12 sample cards, tags fly, dots fill up = first permutations of the next step);
+   data leakage (1000 peaks, pure noise, seed 6): 10 peaks picked before the split -> test 87 %, picked on training only -> 50 %;
+   permutation test that repeats the peak picking catches the leak (32 of 100 shuffled models as good);
+   free mode: peak selection none / before the split / training only.
+   A4 v6: simpler step 2, contaminant slider in words, histogram axis titled.
+   A4 v2: PLS-DA on real data (Iris, setosa vs. versicolor) and on pure noise (MS-like).
+   Same procedure on both: training, test, permutation test. Coding 0/1, cut-off 0.5,
+   axes LV1 and LV2 as on the slides. Accent = FH #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent-soft:rgba(246,164,32,.22); --blue:#2f6db5; --ok:#2e8b57; --bad:#c0392b;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046; --blue:#6aa2e6; --ok:#6fcf97; --bad:#ef8a80;}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1180px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:flex;flex-direction:column;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.lbl{font-weight:600;color:var(--muted)}
+.sliders{display:grid;grid-template-columns:repeat(2,minmax(200px,1fr));gap:10px 26px}
+.sliders[hidden],.seg[hidden]{display:none}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.9rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:4px 0 0}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:118px}
+.status p{margin:0;font-size:1.12rem;max-width:66ch}
+.nums{display:flex;gap:24px;flex-wrap:wrap}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.8rem;white-space:nowrap}
+.nums .v{font-size:1.4rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 2px}
+.card p{margin:2px 0 8px;color:var(--muted);font-size:.92rem}
+.card[hidden]{display:none}
+canvas{display:block;width:100%;height:auto;aspect-ratio:1/1}
+.flow{display:flex;flex-direction:column;gap:8px;margin:6px 0 12px}
+.flow[hidden]{display:none}
+.fbox{border:2px solid var(--line);border-radius:10px;padding:8px 12px;font-weight:600;position:relative}
+.fbox small{display:block;font-weight:400;color:var(--muted);font-size:.85rem}
+.fbox.leak{border-color:var(--bad);background:rgba(192,57,43,.08)}
+.fbox.vault{border-style:dashed}
+.fbox.res{border-color:var(--accent);background:var(--accent-soft)}
+.farr{text-align:center;color:var(--muted);font-weight:700;line-height:1}
+.farr.leak{color:var(--bad)}
+.fsplit{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 10px;font-size:.9rem;font-weight:600}
+.fline[hidden]{display:none}
+.chip{border:2px solid var(--line);border-radius:8px;padding:3px 8px}
+.chip.leak{border-color:var(--bad);background:rgba(192,57,43,.08)}
+.chip.vault{border-style:dashed}
+.chip.res{border-color:var(--accent);background:var(--accent-soft)}
+.fline .ar{color:var(--muted)}
+#hist{aspect-ratio:auto}
+@media (max-width:860px){.grid{grid-template-columns:1fr}.status{grid-template-columns:1fr}.sliders{grid-template-columns:1fr}.nums{justify-content:flex-start}.nums div{text-align:left}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>PLS-DA: real difference or just noise?</h1>
+    <p class="sub">The same procedure on two data sets: Iris flowers and simulated LC-MS data from two groundwater wells.</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="seg" id="dsSeg" hidden>
+    <span class="lbl">Data:</span>
+    <button id="dIris" type="button" aria-pressed="true">Iris (real difference)</button>
+    <button id="dNoise" type="button" aria-pressed="false">Groundwater (simulated LC-MS)</button>
+    <button id="newd" type="button">New random data</button>
+  </div>
+  <div class="seg" id="selSeg" hidden>
+    <span class="lbl">Peak selection (10 peaks):</span>
+    <button id="sNone" type="button" aria-pressed="true">none</button>
+    <button id="sBefore" type="button" aria-pressed="false">before the split (leak)</button>
+    <button id="sTrain" type="button" aria-pressed="false">training samples only</button>
+  </div>
+  <div class="seg" id="shufSeg" hidden>
+    <button id="shuf1" type="button">Shuffle labels</button>
+    <button id="shuf10" type="button">Shuffle 10×</button>
+  </div>
+  <div class="sliders" id="sl" hidden>
+    <div class="ctl"><label for="p">Peaks per sample <output id="pOut"></output></label>
+      <input id="p" type="range" min="2" max="1000" step="1" value="100"></div>
+    <div class="ctl"><label for="n">Samples per well <output id="nOut"></output></label>
+      <input id="n" type="range" min="5" max="60" step="1" value="15"></div>
+    <div class="ctl"><label for="eff">Contaminant in well B: how much 5 peaks rise, compared with the usual random scatter <output id="effOut"></output></label>
+      <input id="eff" type="range" min="0" max="3" step="0.1" value="0"></div>
+  </div>
+</div>
+
+<div class="status">
+  <p id="say"></p>
+  <div class="nums">
+    <div><div class="k">Training accuracy</div><div class="v" id="nTr">–</div></div>
+    <div><div class="k">Test accuracy</div><div class="v" id="nTe">–</div></div>
+    <div><div class="k">Shuffled models as good</div><div class="v" id="nPm">–</div></div>
+  </div>
+</div>
+
+<div class="grid" id="grid">
+  <div class="card" id="lCard">
+    <h2 id="lTitle"></h2>
+    <p id="lSub"></p>
+    <canvas id="sc" width="600" height="600" aria-label="Scatter or score plot"></canvas>
+  </div>
+  <div class="card" id="rCard" hidden>
+    <h2 id="rTitle">Permutation test on the test samples</h2>
+    <p id="hSub"></p>
+    <div class="fline" id="flow" hidden></div>
+    <canvas id="hist" width="600" height="600" aria-label="Permutation histograms"></canvas>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var IRIS=[[5.1,1.4,0],[4.9,1.4,0],[4.7,1.3,0],[4.6,1.5,0],[5.0,1.4,0],[5.4,1.7,0],[4.6,1.4,0],[5.0,1.5,0],[4.4,1.4,0],[4.9,1.5,0],[5.4,1.5,0],[4.8,1.6,0],[4.8,1.4,0],[4.3,1.1,0],[5.8,1.2,0],[5.7,1.5,0],[5.4,1.3,0],[5.1,1.4,0],[5.7,1.7,0],[5.1,1.5,0],[5.4,1.7,0],[5.1,1.5,0],[4.6,1.0,0],[5.1,1.7,0],[4.8,1.9,0],[5.0,1.6,0],[5.0,1.6,0],[5.2,1.5,0],[5.2,1.4,0],[4.7,1.6,0],[4.8,1.6,0],[5.4,1.5,0],[5.2,1.5,0],[5.5,1.4,0],[4.9,1.5,0],[5.0,1.2,0],[5.5,1.3,0],[4.9,1.4,0],[4.4,1.3,0],[5.1,1.5,0],[5.0,1.3,0],[4.5,1.3,0],[4.4,1.3,0],[5.0,1.6,0],[5.1,1.9,0],[4.8,1.4,0],[5.1,1.6,0],[4.6,1.4,0],[5.3,1.5,0],[5.0,1.4,0],[7.0,4.7,1],[6.4,4.5,1],[6.9,4.9,1],[5.5,4.0,1],[6.5,4.6,1],[5.7,4.5,1],[6.3,4.7,1],[4.9,3.3,1],[6.6,4.6,1],[5.2,3.9,1],[5.0,3.5,1],[5.9,4.2,1],[6.0,4.0,1],[6.1,4.7,1],[5.6,3.6,1],[6.7,4.4,1],[5.6,4.5,1],[5.8,4.1,1],[6.2,4.5,1],[5.6,3.9,1],[5.9,4.8,1],[6.1,4.0,1],[6.3,4.9,1],[6.1,4.7,1],[6.4,4.3,1],[6.6,4.4,1],[6.8,4.8,1],[6.7,5.0,1],[6.0,4.5,1],[5.7,3.5,1],[5.5,3.8,1],[5.5,3.7,1],[5.8,3.9,1],[6.0,5.1,1],[5.4,4.5,1],[6.0,4.5,1],[6.7,4.7,1],[6.3,4.4,1],[5.6,4.1,1],[5.5,4.0,1],[5.5,4.4,1],[6.1,4.6,1],[5.8,4.0,1],[5.0,3.3,1],[5.6,4.2,1],[5.7,4.2,1],[5.7,4.2,1],[6.2,4.3,1],[5.1,3.0,1],[5.7,4.1,1]];
+var W=600,H=600,PD=64,LAST=13,NPERM=100,NSEL=10;
+var DEF={p:100,n:15,seed:1,eff:0};
+var st={p:DEF.p,n:DEF.n,seed:DEF.seed,eff:DEF.eff,step:0,ds:'iris',sel:'none',shuf:{k:0,tags:null,anim:null,queue:0}};
+var NREAL=5;
+var CACHE={};
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+/* canvas text grows on narrow screens (phones via QR) */
+var U=1;function fs(n){return Math.round(n*U)}
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function pct(x){return Math.round(x*100)+" %"}
+
+function makeRng(seed){var s=seed|0;return function(){s=s+0x6D2B79F5|0;var t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function gaussFrom(r){return function(){var u=Math.max(r(),1e-12),v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}}
+
+/* PLS-DA with 2 latent variables: y coded 0/1, NIPALS (PLS1). */
+function fit(X,y){
+  var n=X.length,p=X[0].length,i,j,a;
+  var mx=new Array(p).fill(0),my=0;
+  for(i=0;i<n;i++){my+=y[i]/n;for(j=0;j<p;j++)mx[j]+=X[i][j]/n}
+  var E=X.map(function(r){return r.map(function(v,j){return v-mx[j]})}), f=y.map(function(v){return v-my});
+  var comps=[];
+  for(a=0;a<Math.min(2,p);a++){
+    var w=new Array(p).fill(0),nw=0;
+    for(j=0;j<p;j++){for(i=0;i<n;i++)w[j]+=E[i][j]*f[i];nw+=w[j]*w[j]}
+    nw=Math.sqrt(nw)||1;for(j=0;j<p;j++)w[j]/=nw;
+    var t=E.map(function(r){var s=0;for(var k=0;k<p;k++)s+=r[k]*w[k];return s});
+    var tt=t.reduce(function(s,v){return s+v*v},0)||1e-12;
+    var ld=new Array(p).fill(0);
+    for(j=0;j<p;j++){for(i=0;i<n;i++)ld[j]+=E[i][j]*t[i];ld[j]/=tt}
+    var q=0;for(i=0;i<n;i++)q+=f[i]*t[i];q/=tt;
+    for(i=0;i<n;i++){for(j=0;j<p;j++)E[i][j]-=t[i]*ld[j];f[i]-=q*t[i]}
+    comps.push({w:w,ld:ld,q:q});
+  }
+  return {mx:mx,my:my,comps:comps};
+}
+function apply(m,X){
+  return X.map(function(r){
+    var e=r.map(function(v,j){return v-m.mx[j]}),yh=m.my,sc=[];
+    m.comps.forEach(function(c){
+      var t=0;for(var j=0;j<e.length;j++)t+=e[j]*c.w[j];
+      for(j=0;j<e.length;j++)e[j]-=t*c.ld[j];
+      yh+=c.q*t;sc.push(t);
+    });
+    while(sc.length<2)sc.push(0);
+    return {t:sc,yh:yh};
+  });
+}
+function acc(res,y){var k=0;res.forEach(function(r,i){if((r.yh>=0.5?1:0)===y[i])k++});return k/y.length}
+function shuffle(y,r){var a=y.slice();for(var i=a.length-1;i>0;i--){var k=Math.floor(r()*(i+1)),t=a[i];a[i]=a[k];a[k]=t}return a}
+
+/* Peak selection: the NSEL peaks with the largest difference between the groups (Welch t). */
+function tscore(X,y){var p=X[0].length,out=[];for(var j=0;j<p;j++){var s0=0,s1=0,q0=0,q1=0,n0=0,n1=0;
+  for(var i=0;i<X.length;i++){var v=X[i][j];if(y[i]){s1+=v;q1+=v*v;n1++}else{s0+=v;q0+=v*v;n0++}}
+  var m0=s0/n0,m1=s1/n1,v0=(q0-n0*m0*m0)/(n0-1),v1=(q1-n1*m1*m1)/(n1-1);out.push(Math.abs(m1-m0)/Math.sqrt(v0/n0+v1/n1||1e-12))}return out}
+function topk(sc,k){return sc.map(function(v,i){return [v,i]}).sort(function(a,b){return b[0]-a[0]}).slice(0,k).map(function(z){return z[1]})}
+function cols(X,I){return X.map(function(r){return I.map(function(j){return r[j]})})}
+/* whole procedure for one set of labels: (pick peaks) -> train -> test */
+function pipeline(D,ytr,yte,sel){
+  var I=null;
+  if(sel==='before')I=topk(tscore(D.Xtr.concat(D.Xte),ytr.concat(yte)),NSEL);
+  else if(sel==='train')I=topk(tscore(D.Xtr,ytr),NSEL);
+  var Xa=I?cols(D.Xtr,I):D.Xtr,Xb=I?cols(D.Xte,I):D.Xte,m=fit(Xa,ytr);
+  return {m:m,rtr:apply(m,Xa),rte:apply(m,Xb),I:I};
+}
+
+/* Data sets. Iris: every second flower is held back as test flower. */
+function irisData(){
+  var tr=[],te=[];
+  IRIS.forEach(function(r,i){(i%2?te:tr).push(r)});
+  return {Xtr:tr.map(function(r){return [r[0],r[1]]}),ytr:tr.map(function(r){return r[2]}),
+          Xte:te.map(function(r){return [r[0],r[1]]}),yte:te.map(function(r){return r[2]}),
+          raw:IRIS.map(function(r){return [r[0],r[1]]}),yraw:IRIS.map(function(r){return r[2]})};
+}
+function noiseData(p,n,seed){
+  var g=gaussFrom(makeRng(seed*7919+p*31+n));
+  function X(k){var o=[];for(var i=0;i<k;i++){var r=[];for(var j=0;j<p;j++)r.push(g());o.push(r)}return o}
+  var y=[];for(var i=0;i<2*n;i++)y.push(i<n?0:1);
+  var Xtr=X(2*n),Xte=X(2*n);
+  /* optional real difference: group 1 is shifted by eff (in SD) in the first NREAL peaks */
+  [Xtr,Xte].forEach(function(M){M.forEach(function(r,i){if(y[i])for(var j=0;j<Math.min(NREAL,p);j++)r[j]+=st.eff})});
+  return {Xtr:Xtr,ytr:y,Xte:Xte,yte:y.slice(),raw:Xtr.map(function(r){return [r[0],r[1]]}),yraw:y};
+}
+
+/* Complete analysis for one data set: model, test, permutation test. */
+function analyse(which){
+  var sel=which==='iris'?'none':st.sel;
+  var key=which==='iris'?'iris':('noise_'+st.p+'_'+st.n+'_'+st.seed+'_'+st.eff+'_'+sel);
+  if(CACHE[key])return CACHE[key];
+  var D=which==='iris'?irisData():noiseData(st.p,st.n,st.seed);
+  var PL=pipeline(D,D.ytr,D.yte,sel),m=PL.m,rtr=PL.rtr,rte=PL.rte;
+  var r=makeRng(4242+(which==='iris'?0:st.seed)), perm=[];
+  /* permutation test on the test data: shuffle all labels (training and test together),
+     then repeat the whole procedure (including any peak selection) and judge on the test samples */
+  var nt=D.ytr.length, all=D.ytr.concat(D.yte);
+  for(var k=0;k<NPERM;k++){var ys=shuffle(all,r),ya=ys.slice(0,nt),yb=ys.slice(nt);perm.push(acc(pipeline(D,ya,yb,sel).rte,yb))}
+  var ate=acc(rte,D.yte), atLeast=perm.filter(function(a){return a>=ate-1e-9}).length;
+  var o={D:D,m:m,rtr:rtr,rte:rte,atr:acc(rtr,D.ytr),ate:ate,perm:perm,atLeast:atLeast};
+  if(PL.I){/* what the peak picking saw, and how the picked peaks behave in training and test */
+    var used=sel==='before'?{X:D.Xtr.concat(D.Xte),y:D.ytr.concat(D.yte)}:{X:D.Xtr,y:D.ytr};
+    function mdiff(X,y,j){var s0=0,s1=0,n0=0,n1=0;X.forEach(function(r,i){if(y[i]){s1+=r[j];n1++}else{s0+=r[j];n0++}});return s1/n1-s0/n0}
+    o.pick={sc:tscore(used.X,used.y),I:PL.I,dtr:PL.I.map(function(j){return mdiff(D.Xtr,D.ytr,j)}),dte:PL.I.map(function(j){return mdiff(D.Xte,D.yte,j)})};
+  }
+  CACHE[key]=o;return o;
+}
+
+/* Which data set and which layers each step shows. */
+var PLAN=[
+  {ds:'iris', view:'raw'},
+  {ds:'iris', view:'train'},
+  {ds:'iris', view:'test'},
+  {ds:'noise',view:'train',set:{eff:0,p:100,n:15}},
+  {ds:'noise',view:'test', set:{eff:0,p:100,n:15}},
+  {ds:'noise',view:'shuffle',set:{eff:0,p:100,n:15}},
+  {ds:'noise',view:'test', set:{eff:0,p:100,n:15},perm:true},
+  {ds:'noise',view:'test', set:{eff:1,p:100,n:15},perm:true},
+  {ds:'noise',view:'test', set:{eff:1,p:100,n:5},perm:true},
+  {ds:'noise',view:'test', set:{eff:1,p:200,n:15},perm:true},
+  {ds:'noise',view:'test', set:{eff:0,p:1000,n:15,seed:6,sel:'before'},flow:'leak'},
+  {ds:'noise',view:'test', set:{eff:0,p:1000,n:15,seed:6,sel:'train'},flow:'honest'},
+  {ds:'noise',view:'test', set:{eff:0,p:1000,n:15,seed:6,sel:'before'},perm:true},
+  {ds:null,   view:'test',perm:true}
+];
+function cur(){var P=PLAN[st.step];return {ds:P.ds||st.ds,view:P.view,perm:!!P.perm,flow:P.flow||null}}
+
+function dot(g,x,y,r,fill,stroke,lw){g.beginPath();g.arc(x,y,r,0,2*Math.PI);if(fill){g.fillStyle=fill;g.fill()}if(stroke){g.lineWidth=lw||2;g.strokeStyle=stroke;g.stroke()}}
+/* set the font, shrinking it until txt fits into maxW */
+function fitText(g,txt,weight,size,maxW,minSize){var s=fs(size),mn=Math.max(10,minSize?fs(minSize):10);do{g.font=weight+s+"px "+FONT;s--}while(g.measureText(txt).width>maxW&&s>=mn)}
+/* draw text over several lines if it does not fit into maxW */
+function wrapText(g,txt,x,y,maxW,lh,col){var words=txt.split(" "),line="",n=0;words.forEach(function(w){var t=line?line+" "+w:w;if(g.measureText(t).width>maxW&&line){halo(g,line,x,y+n*lh,col);n++;line=w}else line=t});if(line)halo(g,line,x,y+n*lh,col)}
+function halo(g,txt,x,y,col){g.lineWidth=6;g.strokeStyle=css("--panel");g.strokeText(txt,x,y);g.fillStyle=col;g.fillText(txt,x,y)}
+function names(ds){return ds==='iris'?["setosa (0)","versicolor (1)"]:["well A (0)","well B (1)"]}
+
+function drawLeft(){
+  var c=$("sc"),g=c.getContext("2d"),PD=Math.round(64*Math.min(U,1.3));
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),blue=css("--blue"),panel=css("--panel");
+  var C=cur(), A=analyse(C.ds), raw=C.view==='raw';
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  if(C.view==='shuffle'){drawCards(g,A);return}
+  var pts=raw?A.D.raw:A.rtr.map(function(r){return r.t}), lab=raw?A.D.yraw:A.D.ytr;
+  var test=C.view==='test'?A.rte.map(function(r){return r.t}):[];
+
+  var x0,x1,y0,y1;
+  if(raw&&C.ds==='iris'){x0=4;x1=7.5;y0=0.5;y1=5.5}
+  else{var R=0;pts.concat(test).forEach(function(q){R=Math.max(R,Math.abs(q[0]),Math.abs(q[1]))});R=R*1.1||1;x0=-R;x1=R;y0=-R;y1=R;
+    if(!raw&&C.ds==='iris'){var Ry=Math.max(R*0.35,0.6);y0=-Ry;y1=Ry}}
+  function px(x){return PD+(x-x0)/(x1-x0)*(W-2*PD)}
+  function py(y){return H-PD-(y-y0)/(y1-y0)*(H-2*PD)}
+
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();
+  for(var k=0;k<=8;k++){var fx=x0+(x1-x0)*k/8,fy=y0+(y1-y0)*k/8;g.moveTo(px(fx),py(y0));g.lineTo(px(fx),py(y1));g.moveTo(px(x0),py(fy));g.lineTo(px(x1),py(fy))}
+  g.stroke();
+  g.strokeStyle=ink;g.lineWidth=2;g.strokeRect(PD,PD,W-2*PD,H-2*PD);
+  g.font="600 "+fs(20)+"px "+FONT;g.fillStyle=ink;g.textAlign="center";g.textBaseline="top";
+  var xl=raw?(C.ds==='iris'?"sepal length (cm)":"variable 1"):"LV1", yl=raw?(C.ds==='iris'?"petal length (cm)":"variable 2"):"LV2";
+  g.fillText(xl,W/2,H-PD+(raw&&C.ds==='iris'?10+fs(17):10));
+  g.save();g.translate(PD-(raw&&C.ds==='iris'?14+fs(14):12),H/2);g.rotate(-Math.PI/2);g.textBaseline="bottom";g.fillText(yl,0,0);g.restore();
+  if(raw&&C.ds==='iris'){g.font=""+fs(17)+"px "+FONT;g.fillStyle=muted;
+    for(k=4;k<=7;k++){g.textAlign="center";g.textBaseline="top";g.fillText(String(k),px(k),H-PD+8)}
+    for(k=1;k<=5;k++){g.textAlign="right";g.textBaseline="middle";g.fillText(String(k),PD-6,py(k))}
+  }
+
+  /* decision line: predicted value = 0.5 */
+  if(!raw){
+    var mdl=A.m,q1=mdl.comps[0].q,q2=mdl.comps[1]?mdl.comps[1].q:0,c0=0.5-mdl.my;
+    g.save();g.beginPath();g.rect(PD,PD,W-2*PD,H-2*PD);g.clip();
+    g.setLineDash([10,7]);g.strokeStyle=muted;g.lineWidth=2.5;g.beginPath();
+    if(Math.abs(q2)>1e-9){g.moveTo(px(x0),py((c0-q1*x0)/q2));g.lineTo(px(x1),py((c0-q1*x1)/q2))}
+    else{g.moveTo(px(c0/q1),py(y0));g.lineTo(px(c0/q1),py(y1))}
+    g.stroke();g.setLineDash([]);g.restore();
+  }
+
+  var fade=test.length>0;
+  pts.forEach(function(q,i){g.globalAlpha=fade?0.3:1;dot(g,px(q[0]),py(q[1]),6.5,lab[i]?acc:blue,null);g.globalAlpha=1});
+  /* test rings: green = classified correctly, red = wrong */
+  var okC=css("--ok"),badC=css("--bad");
+  test.forEach(function(q,i){var right=(A.rte[i].yh>=0.5?1:0)===A.D.yte[i];dot(g,px(q[0]),py(q[1]),7.5,null,right?okC:badC,3.5)});
+
+  var nm=names(C.ds);
+  g.font="600 "+fs(18)+"px "+FONT;g.textAlign="left";g.textBaseline="middle";
+  var ly=function(i){return PD+fs(20)+i*fs(26)},lx=PD+12+fs(18);
+  dot(g,PD+fs(18),ly(0),7*U,blue,null);halo(g,nm[0],lx,ly(0),ink);
+  dot(g,PD+fs(18),ly(1),7*U,acc,null);halo(g,nm[1],lx,ly(1),ink);
+  if(test.length){g.textAlign="left";
+    dot(g,PD+fs(18),ly(2),7*U,null,okC,3.5);halo(g,"test sample, correct",lx,ly(2),ink);
+    dot(g,PD+fs(18),ly(3),7*U,null,badC,3.5);halo(g,"test sample, wrong",lx,ly(3),ink)}
+  if(!raw){g.textAlign="right";g.font=""+fs(17)+"px "+FONT;halo(g,"dashed: cut-off 0.5",W-PD-10,H-PD-18,muted)}
+}
+
+/* Right panel: permutation histograms, Iris on top, noise below. */
+function drawHist(){
+  function Y(v){return Math.round(v*U)}
+  /* height from the content: one or two data sets, each with title, plot, axis and verdict */
+  var nRows=st.step===6?2:1,plotH=Y(nRows===1?420:178),rowH=plotH+Y(64)+2*fs(21)+Y(18);
+  var c=$("hist"),HH=Math.max(H,Y(52)+nRows*rowH);if(c.height!==HH)c.height=HH;var g=c.getContext("2d");
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),panel=css("--panel");
+  g.fillStyle=panel;g.fillRect(0,0,W,HH);
+  var effTxt=st.eff>0?("contaminant: 5 peaks, "+st.eff.toFixed(1)+" × scatter"):"same water, pure noise";
+  var rows=[{ds:'iris',title:"Data set 1: Iris flowers",sub:"real difference between the species"},
+            {ds:'noise',title:"Data set 2: groundwater (simulated LC-MS)",sub:"two wells, "+st.p+" peaks, "+st.n+" samples per well",sub2:effTxt+(st.sel==='before'?"; 10 peaks picked before the split":st.sel==='train'?"; 10 peaks picked from training only":"")}];
+  var L=60,Rr=W-24,lo=0.2,hi=1.0,bw=0.05,nb=Math.round((hi-lo)/bw);
+  function xx(a){return L+(a-lo)/(hi-lo)*(Rr-L)}
+  /* legend */
+  fitText(g,"100 models, shuffled labels     real model (true labels)","600 ",18,Rr-L-40);g.textBaseline="middle";g.textAlign="left";
+  var lw=g.measureText("100 models, shuffled labels").width;
+  g.fillStyle=muted;g.fillRect(L,Y(14),Y(18),Y(18));g.fillText("100 models, shuffled labels",L+Y(26),Y(23));
+  g.fillStyle=acc;g.fillRect(L+Y(26)+lw+24,Y(12),5,Y(22));g.fillText("real model (true labels)",L+Y(26)+lw+38,Y(23));
+  /* both data sets only in the first permutation step, afterwards the current one, larger */
+  if(st.step!==6)rows=rows.filter(function(rw){return rw.ds===cur().ds});
+  var one=rows.length===1;
+  rows.forEach(function(rw,k){
+    var A=analyse(rw.ds), top=Y(52)+k*rowH, B=top+plotH;
+    var cnt=new Array(nb).fill(0);
+    A.perm.forEach(function(a){var b=Math.min(nb-1,Math.max(0,Math.floor((a-lo)/bw+1e-9)));cnt[b]++});
+    var mx=Math.max.apply(null,cnt.concat([10]));
+    fitText(g,rw.title,"600 ",19,Rr-L,14);g.fillStyle=ink;g.textAlign="left";g.textBaseline="top";g.fillText(rw.title,L,top);
+    fitText(g,rw.sub,"",16,Rr-L,13);g.fillStyle=muted;g.fillText(rw.sub,L,top+Y(23));
+    if(rw.sub2){fitText(g,rw.sub2,"",16,Rr-L,13);g.fillText(rw.sub2,L,top+Y(42))}
+    var pt=top+Y(66); /* top of the plot area */
+    g.strokeStyle=line;g.lineWidth=1;g.beginPath();
+    [0.2,0.4,0.5,0.6,0.8,1].forEach(function(a){g.moveTo(xx(a),pt);g.lineTo(xx(a),B)});g.stroke();
+    g.fillStyle=muted;
+    cnt.forEach(function(v,i){if(!v)return;var hh=v/mx*(B-pt-Y(14));g.fillRect(xx(lo+i*bw)+1,B-hh,(Rr-L)/nb-2,hh)});
+    g.strokeStyle=ink;g.lineWidth=2;g.beginPath();g.moveTo(L,B);g.lineTo(Rr,B);g.stroke();
+    g.font=""+fs(16)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";
+    [0.2,0.4,0.6,0.8,1].forEach(function(a){g.textAlign=a===1?"right":"center";g.fillText(pct(a),a===1?Rr+16:xx(a),B+5)});g.textAlign="center";
+    g.fillText("(chance)",xx(0.5),B+Y(22));
+    g.font="600 "+fs(16)+"px "+FONT;g.fillStyle=ink;g.textAlign="right";g.fillText("accuracy on the test samples",Rr,B+Y(42));
+    var xr=xx(Math.min(A.ate,0.995));
+    g.strokeStyle=acc;g.lineWidth=5;g.beginPath();g.moveTo(xr,pt);g.lineTo(xr,B);g.stroke();
+    g.font="600 "+fs(18)+"px "+FONT;g.textBaseline="top";var right=A.ate>0.7;g.textAlign=right?"right":"left";
+    halo(g,"real model: "+pct(A.ate),xr+(right?-8:8),pt+2,acc);
+    var verdict=A.atLeast===0?("None of the "+NPERM+" shuffled models is as good: not chance."):A.atLeast<=5?("Only "+A.atLeast+" of "+NPERM+" shuffled models are as good: not chance."):(A.atLeast+" of "+NPERM+" shuffled models are as good: could be chance.");
+    g.font="600 "+fs(17)+"px "+FONT;g.textAlign="left";g.textBaseline="top";
+    wrapText(g,verdict,L,B+Y(64),Rr-L,fs(21),ink);
+  });
+}
+
+/* Step 6: twelve sample cards; the labels are shuffled, the measurements stay. */
+var CARDIDX=[0,1,2,3,4,5,15,16,17,18,19,20];
+function cardBox(i){var cw=126,ch=118,gx=16,gy=58,x0=(W-(4*cw+3*gx))/2,y0=44;return {x:x0+(i%4)*(cw+gx),y:y0+Math.floor(i/4)*(ch+gy),w:cw,h:ch}}
+function initTags(){st.shuf.tags=CARDIDX.map(function(_,i){return {lab:i<6?0:1,pos:i,from:i}})}
+function drawCards(g,A){
+  if(!st.shuf.tags)initTags();
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),blue=css("--blue"),panel=css("--panel"),t=st.shuf.t===undefined?1:st.shuf.t;
+  fitText(g,"12 of the 60 samples: measured peaks and label","600 ",18,W-56);g.textAlign="left";g.textBaseline="middle";halo(g,"12 of the 60 samples: measured peaks and label",28,22,ink);
+  CARDIDX.forEach(function(si,i){var b=cardBox(i);g.fillStyle=panel;g.strokeStyle=line;g.lineWidth=2;g.beginPath();g.roundRect?g.roundRect(b.x,b.y,b.w,b.h,10):g.rect(b.x,b.y,b.w,b.h);g.fill();g.stroke();
+    g.font=""+fs(14)+"px "+FONT;g.fillStyle=muted;g.textAlign="left";g.textBaseline="top";g.fillText("sample "+(i+1),b.x+8,b.y+6);
+    var row=A.D.Xtr[si],nb=10,bw=(b.w-20)/nb,base=b.y+b.h-10;
+    for(var j=0;j<nb;j++){var hgt=Math.max(4,Math.min(1,(row[j]+3)/6)*(b.h-40));g.fillStyle=muted;g.fillRect(b.x+10+j*bw+1,base-hgt,bw-2,hgt)}});
+  /* tags: fly from the old to the new sample */
+  var e=t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+  st.shuf.tags.forEach(function(tg){var a=cardBox(tg.from),b=cardBox(tg.pos),ax=a.x+a.w/2,ay=a.y+a.h+20,bx=b.x+b.w/2,by=b.y+b.h+20;
+    var x=ax+(bx-ax)*e,y=ay+(by-ay)*e-Math.sin(Math.PI*e)*(tg.from===tg.pos?0:60);
+    var w=96,h=28;g.fillStyle=tg.lab?acc:blue;g.beginPath();g.roundRect?g.roundRect(x-w/2,y-h/2,w,h,8):g.rect(x-w/2,y-h/2,w,h);g.fill();
+    g.font="700 "+fs(15)+"px "+FONT;g.fillStyle=tg.lab?"#1f2328":"#fff";g.textAlign="center";g.textBaseline="middle";g.fillText(tg.lab?"well B":"well A",x,y)});
+}
+function shuffleOnce(dur,done){
+  var tags=st.shuf.tags,n=tags.length,perm,same=true;
+  while(same){perm=[];for(var i=0;i<n;i++)perm.push(i);for(i=n-1;i>0;i--){var k=Math.floor(Math.random()*(i+1)),tmp=perm[i];perm[i]=perm[k];perm[k]=tmp}same=perm.every(function(v,i){return v===i})}
+  tags.forEach(function(tg,i){tg.from=tg.pos;tg.pos=perm[i]});
+  var t0=null;function tick(now){if(t0===null)t0=now;st.shuf.t=Math.min(1,(now-t0)/dur);drawLeft();
+    if(st.shuf.t<1)st.shuf.anim=requestAnimationFrame(tick);else{st.shuf.anim=null;st.shuf.k=Math.min(NPERM,st.shuf.k+1);render();if(done)done()}}
+  st.shuf.anim=requestAnimationFrame(tick);
+}
+function stopShuffle(){if(st.shuf.anim){cancelAnimationFrame(st.shuf.anim);st.shuf.anim=null}st.shuf.queue=0;st.shuf.t=1;
+  if(st.shuf.tags)st.shuf.tags.forEach(function(tg){tg.from=tg.pos})}
+/* Step 6, right: one dot per shuffled model */
+function drawDots(A){
+  var c=$("hist");if(c.height!==H)c.height=H;var g=c.getContext("2d");
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),panel=css("--panel");
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  var L=40,Rr=W-30,B=H-Math.round(30+80*U),lo=0.2,hi=1.0,bw=0.05,nb=Math.round((hi-lo)/bw),k=st.shuf.k,r=Math.min(11,(Rr-L)/nb/2-1);
+  function xx(a){return L+(a-lo)/(hi-lo)*(Rr-L)}
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();[0.2,0.4,0.5,0.6,0.8,1].forEach(function(a){g.moveTo(xx(a),40);g.lineTo(xx(a),B)});g.stroke();
+  var cnt=new Array(nb).fill(0);
+  A.perm.slice(0,k).forEach(function(a,i){var bi=Math.min(nb-1,Math.max(0,Math.floor((a-lo)/bw+1e-9))),cx=xx(lo+(bi+0.5)*bw),cy=B-r-1-cnt[bi]*(2*r+2);cnt[bi]++;
+    g.beginPath();g.arc(cx,cy,r,0,2*Math.PI);g.fillStyle=i===k-1?ink:muted;g.fill()});
+  g.strokeStyle=ink;g.lineWidth=2;g.beginPath();g.moveTo(L,B);g.lineTo(Rr,B);g.stroke();
+  g.font=""+fs(16)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";
+  [0.2,0.4,0.6,0.8,1].forEach(function(a){g.textAlign=a===1?"right":"center";g.fillText(pct(a),a===1?Rr+16:xx(a),B+5)});g.textAlign="center";g.fillText("(chance)",xx(0.5),B+Math.round(22*U));
+  g.font="600 "+fs(16)+"px "+FONT;g.fillStyle=ink;g.textAlign="right";g.fillText("accuracy on the test samples",Rr,B+Math.round(44*U));
+  var xr=xx(Math.min(A.ate,0.995));g.strokeStyle=acc;g.lineWidth=5;g.beginPath();g.moveTo(xr,40);g.lineTo(xr,B);g.stroke();
+  g.font="600 "+fs(18)+"px "+FONT;g.textBaseline="top";g.textAlign="left";halo(g,"real model: "+pct(A.ate),xr+8,44,acc);
+  g.font="600 "+fs(17)+"px "+FONT;g.textAlign="left";g.textBaseline="top";
+  halo(g,k?("Shuffled models so far: "+k+(k>=NPERM?" (all)":"")):"No shuffled models yet.",L,B+Math.round(72*U),ink);
+}
+/* Steps 11-12: how the 10 peaks were chosen */
+function flowHTML(kind,A){
+  function chip(cls,t){return '<span class="chip '+cls+'">'+t+'</span>'}var ar='<span class="ar">→</span>';
+  if(kind==='leak')return [chip("leak","all 60 samples"),chip("leak","pick 10 peaks"),chip("","split"),chip("","train"),chip("res","test: "+pct(A.ate))].join(ar);
+  return [chip("","split"),chip("","pick 10 peaks (training only)"),chip("","train"),chip("vault res","test: "+pct(A.ate))].join(ar);
+}
+/* Steps 11-12: the peak picking, drawn */
+function drawPick(A,kind){
+  var c=$("hist"),HH=Math.round(H*1.05+(U-1)*420);if(c.height!==HH)c.height=HH;var g=c.getContext("2d");
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),panel=css("--panel"),bad=css("--bad");
+  g.fillStyle=panel;g.fillRect(0,0,W,HH);
+  var P=A.pick,L=Math.round(30+fs(16)*1.6),Rr=W-16;
+  /* chart 1: difference between the wells for each peak */
+  var t1=8;fitText(g,"Difference between the wells, for each of the "+P.sc.length+" peaks","600 ",18,Rr-8);g.fillStyle=ink;g.textAlign="left";g.textBaseline="top";
+  g.fillText("Difference between the wells, for each of the "+P.sc.length+" peaks",8,t1);
+  var subTxt=kind==='leak'?"computed from all 60 samples (training + test)":"computed from the 30 training samples only";
+  fitText(g,subTxt,"600 ",16,Rr-8);g.fillStyle=kind==='leak'?bad:muted;g.fillText(subTxt,8,t1+fs(24));
+  var T=t1+fs(24)+fs(26),B=T+Math.round(170*Math.min(U,1.3)),mx=Math.max.apply(null,P.sc)*1.08,n=P.sc.length;
+  function bx(j){return L+(j+0.5)/n*(Rr-L)} function by(v){return B-v/mx*(B-T)}
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();for(var v=0;v<=mx;v+=1){g.moveTo(L,by(v));g.lineTo(Rr,by(v))}g.stroke();
+  g.strokeStyle=muted;g.lineWidth=Math.max(0.6,(Rr-L)/n);g.beginPath();P.sc.forEach(function(v,j){g.moveTo(bx(j),B);g.lineTo(bx(j),by(v))});g.stroke();
+  g.strokeStyle=acc;g.lineWidth=3;g.beginPath();P.I.forEach(function(j){g.moveTo(bx(j),B);g.lineTo(bx(j),by(P.sc[j]))});g.stroke();
+  P.I.forEach(function(j){var x=bx(j),y=by(P.sc[j])-4;g.beginPath();g.moveTo(x,y);g.lineTo(x-5,y-9);g.lineTo(x+5,y-9);g.closePath();g.fillStyle=acc;g.fill()});
+  g.strokeStyle=ink;g.lineWidth=2;g.beginPath();g.moveTo(L,B);g.lineTo(Rr,B);g.moveTo(L,T);g.lineTo(L,B);g.stroke();
+  g.font=""+fs(14)+"px "+FONT;g.fillStyle=muted;g.textAlign="right";g.textBaseline="middle";for(v=0;v<=mx;v+=1)g.fillText(String(v),L-5,by(v));
+  g.textAlign="left";g.textBaseline="top";g.fillText("peak 1",L,B+4);g.textAlign="right";g.fillText("peak "+n,Rr,B+4);
+  g.save();g.translate(10+fs(7),(T+B)/2);g.rotate(-Math.PI/2);g.font="600 "+fs(14)+"px "+FONT;g.textAlign="center";g.textBaseline="middle";g.fillStyle=ink;g.fillText("difference (t)",0,0);g.restore();
+  g.font="600 "+fs(15)+"px "+FONT;g.textAlign="center";g.textBaseline="top";halo(g,"orange: the 10 picked peaks",(L+Rr)/2,B+4+fs(18),acc);
+  /* chart 2: the picked peaks in training and test samples */
+  var t2=B+fs(58);fitText(g,"The 10 picked peaks: still a difference?","600 ",18,Rr-8);g.fillStyle=ink;g.textAlign="left";g.textBaseline="top";g.fillText("The 10 picked peaks: still a difference?",8,t2);
+  fitText(g,"Each peak: mean of well B minus mean of well A. Dot: training samples, ring: test samples.","",14,Rr-8);g.fillStyle=muted;g.fillText("Each peak: mean of well B minus mean of well A. Dot: training samples, ring: test samples.",8,t2+fs(22));
+  var T2=t2+fs(30)+fs(22)+fs(18),B2=HH-fs(58),sgn=P.dtr.map(function(d){return d>=0?1:-1});
+  var all=P.dtr.map(function(d,i){return d*sgn[i]}).concat(P.dte.map(function(d,i){return d*sgn[i]}));
+  var hi=Math.max(1,Math.max.apply(null,all))*1.15,lo=Math.min(-0.6,Math.min.apply(null,all))*1.15;
+  function cx(i){return L+(i+0.5)/10*(Rr-L)} function cy(v){return B2-(v-lo)/(hi-lo)*(B2-T2)}
+  /* legend */
+  g.font="600 "+fs(15)+"px "+FONT;g.textBaseline="middle";g.textAlign="left";var ly=t2+fs(30)+fs(18);
+  g.beginPath();g.arc(L+6,ly,6,0,2*Math.PI);g.fillStyle=acc;g.fill();g.fillStyle=ink;g.fillText("training samples",L+18,ly);
+  var lx=L+30+g.measureText("training samples").width+14;g.beginPath();g.arc(lx,ly,6.5,0,2*Math.PI);g.lineWidth=3;g.strokeStyle=ink;g.stroke();g.fillText("test samples",lx+12,ly);
+  g.setLineDash([6,5]);g.strokeStyle=muted;g.lineWidth=2;g.beginPath();g.moveTo(L,cy(0));g.lineTo(Rr,cy(0));g.stroke();g.setLineDash([]);
+  g.font=""+fs(14)+"px "+FONT;g.fillStyle=muted;g.textAlign="right";g.textBaseline="bottom";g.fillText("no difference",Rr,cy(0)-3);
+  for(var i=0;i<10;i++){var a1=P.dtr[i]*sgn[i],a2=P.dte[i]*sgn[i],x=cx(i);
+    g.strokeStyle=line;g.lineWidth=2;g.beginPath();g.moveTo(x,cy(a1));g.lineTo(x,cy(a2));g.stroke();
+    g.beginPath();g.arc(x-0,cy(a1),7,0,2*Math.PI);g.fillStyle=acc;g.fill();
+    g.beginPath();g.arc(x,cy(a2),7.5,0,2*Math.PI);g.lineWidth=3;g.strokeStyle=ink;g.stroke()}
+  g.strokeStyle=ink;g.lineWidth=2;g.beginPath();g.moveTo(L,T2);g.lineTo(L,B2);g.stroke();
+  g.font=""+fs(14)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";g.fillText("picked peak 1 to 10",(L+Rr)/2,B2+4);
+  g.save();g.translate(10+fs(7),(T2+B2)/2);g.rotate(-Math.PI/2);g.font="600 "+fs(14)+"px "+FONT;g.textAlign="center";g.textBaseline="middle";g.fillStyle=ink;g.fillText("B minus A",0,0);g.restore();
+  var mte=P.dte.reduce(function(s,d,i){return s+d*sgn[i]},0)/10;
+  var verdict=kind==='leak'?"The test samples differ, too: they helped to pick these peaks.":"In the test samples the difference is gone: it was only noise.";
+  g.font="600 "+fs(16)+"px "+FONT;g.textAlign="left";g.textBaseline="top";wrapText(g,verdict,8,B2+fs(22),Rr-8,fs(20),kind==='leak'?bad:ink);
+}
+function median(a){var b=a.slice().sort(function(x,y){return x-y});return b[Math.floor(b.length/2)]}
+
+var TEXTS=[
+  function(A){return "Real data: 50 setosa and 50 versicolor flowers, sepal and petal length. The two species clearly differ."},
+  function(A){return "PLS-DA combines the two lengths into one new variable, LV1, that separates the two species as well as possible. Like PCA, but it knows the groups. It learns from half of the flowers (training data); the other half is kept back to check it later (test data, more on this in the next chapter). Predicted value above 0.5: versicolor. Training accuracy: "+pct(A.atr)+"."},
+  function(A){return "Test: the other half of the flowers (rings) was not used for training. They land on the correct side, too: "+pct(A.ate)+". A real difference holds up on new data."},
+  function(A){return "Now a typical MS study, simulated: groundwater from two wells, 15 samples each. LC-MS gives 100 peaks per sample. Here both wells have the same water, so the peaks differ only by random noise. Still, PLS-DA separates the training samples: "+pct(A.atr)+"."},
+  function(A){return "New test samples from the same two wells (rings) land on both sides of the line: "+pct(A.ate)+", about a coin flip. With more peaks than samples, PLS-DA always finds a separation in the training data, even in noise."},
+  function(A){var k=st.shuf.k;return "How does shuffling work? Here are 12 of the 60 groundwater samples, each with its measured peaks and its label: well A or well B. Shuffle labels mixes the labels at random: the measurements stay where they are, only the names change. A model trained with random labels has nothing real to learn, so its test accuracy shows what chance alone can do."+(k?" Shuffled models so far: "+k+". The real model (trained with the true labels, without shuffling; orange line) reaches "+pct(A.ate)+".":" Press Shuffle labels.")},
+  function(A){return "Permutation test: shuffle the well labels at random, then train and test a new model exactly as before. Repeat 100 times. This shows what chance alone reaches with this data. The orange line is the real model, trained with the true labels. Iris: far better than chance. Groundwater: no better than the shuffled models."},
+  function(A){return "Now well B really is different: a contaminant raises 5 of the 100 peaks, by about as much as the usual random scatter. Training: "+pct(A.atr)+", as always. Test: "+pct(A.ate)+", and "+(A.atLeast===0?"no":A.atLeast)+" shuffled model"+(A.atLeast===1?" is":"s are")+" as good. This time the separation is real."},
+  function(A){return "Same contaminant, but only 5 samples per well. Training: "+pct(A.atr)+" again. Test: "+pct(A.ate)+", but "+A.atLeast+" of 100 shuffled models are just as good. With so few samples we cannot tell the contaminant from chance."},
+  function(A){return "Same contaminant, 15 samples per well, but 200 peaks instead of 100. The 195 irrelevant peaks drown the 5 real ones: test only "+pct(A.ate)+". Measuring more peaks is not automatically better."},
+  function(A){return "Data leakage. Same water again (pure noise), but now 1000 peaks per sample and 60 samples in total, as in a real LC-MS run. A tempting shortcut: for each peak, compare well A and well B using all 60 samples, keep the 10 peaks with the largest difference, and only then split the samples into training and test. Test accuracy: "+pct(A.ate)+"! The test samples helped to choose the peaks, so they are no longer new. The model looks great, but it has learned nothing."},
+  function(A){return "The honest way: split first, then pick the 10 peaks from the training samples only. The test samples stay locked away until the end. Test accuracy: "+pct(A.ate)+", a coin flip, just what pure noise should give. **Everything you learn from the data (choosing peaks, scaling, removing outliers) must be learned from the training samples only.**"},
+  function(A){return "Can the permutation test catch the leak? Yes, if every shuffle repeats the whole procedure, including the peak picking. Then each shuffled model also picks its own best 10 peaks before the split and reaches about "+pct(median(A.perm))+". The leaky model's "+pct(A.ate)+" is nothing special: "+A.atLeast+" of 100 shuffled models are as good. **A permutation test must repeat every step that uses the labels.**"},
+  function(A){return "Bottom line: training accuracy is almost always 100 % and tells you nothing. Only new test data, kept apart from every step of the analysis, and a permutation test show whether a model is really good. That is what the next chapter is about: honest validation. Leakage hurts most with few samples, many peaks and little real difference. Try the sliders and the peak selection."}
+];
+var LT=["Iris: sepal vs. petal length","Iris: PLS-DA scores (training)","Iris: training and test flowers",
+  "Groundwater, same water: PLS-DA scores (training)","Groundwater, same water: training and test","Shuffling the labels","Groundwater, same water: training and test",
+  "Groundwater, contaminant in well B","Contaminant, only 5 samples per well","Contaminant, 200 peaks",
+  "Leak: 10 peaks picked before the split","Honest: 10 peaks picked from training only","Leak: 10 peaks picked before the split","PLS-DA scores: training and test"];
+var RINGS="Filled: training. Rings: test samples (green correct, red wrong).";
+var LS=["Blue: setosa. Orange: versicolor.","Filled: training flowers. Dashed: cut-off 0.5.","Filled: training. Rings: test flowers (green correct, red wrong).",
+  "Filled: training samples. Dashed: cut-off 0.5.",RINGS,"Bars: the first 10 measured peaks of each sample. Tags: labels (well A blue, well B orange).",RINGS,
+  RINGS,RINGS,RINGS,"PLS-DA on the 10 picked peaks. "+RINGS,"PLS-DA on the 10 picked peaks. "+RINGS,"PLS-DA on the 10 picked peaks. "+RINGS,RINGS];
+
+function render(){
+  U=Math.max(1,Math.min(1.6,560/Math.max(320,Math.min(window.innerWidth,900)-40)));
+  var C=cur(), A=analyse(C.ds);
+  $("pOut").textContent=st.p;$("nOut").textContent=st.n;$("p").value=st.p;$("n").value=st.n;
+  $("effOut").textContent=st.eff===0?"none (same water)":st.eff.toFixed(1)+" × the scatter";$("eff").value=st.eff;
+  $("say").innerHTML=TEXTS[st.step](A).replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");
+  var shufView=C.view==='shuffle';
+  $("nTr").textContent=(C.view==='raw'||shufView)?"–":pct(A.atr);
+  $("nTe").textContent=(C.view==='test'||shufView)?pct(A.ate):"–";
+  var asGoodSoFar=A.perm.slice(0,st.shuf.k).filter(function(a){return a>=A.ate-1e-9}).length;
+  $("nPm").textContent=C.perm?(A.atLeast+" / "+NPERM):(shufView&&st.shuf.k?(asGoodSoFar+" / "+st.shuf.k):"–");
+  $("lTitle").textContent=st.step===LAST?(C.ds==='iris'?"Iris: training and test flowers":"Groundwater (simulated LC-MS): training and test"):LT[st.step];
+  $("lSub").textContent=LS[st.step];
+  $("stepno").textContent=st.step<LAST?"Step "+(st.step+1)+" of "+(LAST+1):"Step "+(LAST+1)+" of "+(LAST+1)+" (free mode)";
+  $("back").disabled=st.step===0;$("next").disabled=st.step===LAST;
+  var free=st.step===LAST;
+  $("dsSeg").hidden=!free;
+  $("sl").hidden=!(free&&st.ds==='noise');
+  $("selSeg").hidden=!(free&&st.ds==='noise');
+  [["sNone","none"],["sBefore","before"],["sTrain","train"]].forEach(function(b){$(b[0]).setAttribute("aria-pressed",st.sel===b[1]?"true":"false")});
+  $("shufSeg").hidden=!shufView;$("shuf1").disabled=$("shuf10").disabled=st.shuf.k>=NPERM;
+  $("dIris").setAttribute("aria-pressed",st.ds==='iris'?"true":"false");
+  $("dNoise").setAttribute("aria-pressed",st.ds==='noise'?"true":"false");
+  $("newd").hidden=st.ds!=='noise';
+  var right=C.perm||!!C.flow||shufView;
+  $("rCard").hidden=!right;
+  $("grid").style.gridTemplateColumns=right?"":"minmax(0,640px)";
+  $("grid").style.justifyContent=right?"":"center";
+  drawLeft();
+  $("rTitle").textContent=shufView?"Accuracy of the shuffled models":(C.flow?"How the 10 peaks are picked":"Permutation test on the test samples");
+  $("hSub").textContent=shufView?"Each dot: one model trained with shuffled labels, judged on the test samples. Orange: the real model.":
+    C.flow?(C.flow==='leak'?"First pick the peaks, then split: the test samples take part in the choice. Only peaks (columns of the data table) are picked, all 60 samples stay.":"First split, then pick the peaks: the test samples stay out of the choice."):
+    (st.step===6?"Same question for both data sets: is the real model better on the test samples than models trained on shuffled labels?":
+     (C.ds==='noise'&&st.sel!=='none'?"Each shuffle repeats the whole procedure: pick 10 peaks with the shuffled labels, train, test.":"Is the real model better on the test samples than models trained on shuffled labels?"));
+  $("flow").hidden=!C.flow;if(C.flow)$("flow").innerHTML=flowHTML(C.flow,A);
+  if(shufView)drawDots(A);else if(C.flow)drawPick(A,C.flow);else if(C.perm)drawHist();
+}
+function go(k){
+  stopShuffle();
+  st.step=Math.max(0,Math.min(LAST,k));
+  var P=PLAN[st.step];
+  if(P.set){st.eff=P.set.eff;st.p=P.set.p;st.n=P.set.n;st.seed=P.set.seed||DEF.seed;st.sel=P.set.sel||'none'}
+  if(st.step===LAST&&!st.dsSet){st.ds='noise';st.eff=1;st.p=100;st.n=15;st.seed=DEF.seed;st.sel='none'}
+  render();
+}
+
+$("p").addEventListener("input",function(e){st.p=+e.target.value;render()});
+$("n").addEventListener("input",function(e){st.n=+e.target.value;render()});
+$("eff").addEventListener("input",function(e){st.eff=+e.target.value;render()});
+$("dIris").addEventListener("click",function(){st.ds='iris';st.dsSet=true;render()});
+$("dNoise").addEventListener("click",function(){st.ds='noise';st.dsSet=true;render()});
+$("newd").addEventListener("click",function(){st.seed++;render()});
+[["sNone","none"],["sBefore","before"],["sTrain","train"]].forEach(function(b){$(b[0]).addEventListener("click",function(){st.sel=b[1];render()})});
+$("shuf1").addEventListener("click",function(){if(st.shuf.anim)return;shuffleOnce(750)});
+$("shuf10").addEventListener("click",function(){if(st.shuf.anim)return;var left=10;function nx(){left--;if(left>0&&st.shuf.k<NPERM&&st.step===5)shuffleOnce(280,nx)}shuffleOnce(280,nx)});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){stopShuffle();st.shuf.k=0;initTags();st.sel='none';st.dsSet=false;st.eff=DEF.eff;st.p=DEF.p;st.n=DEF.n;st.seed=DEF.seed;st.step=0;st.ds='iris';st.dsSet=false;render()});
+document.addEventListener("keydown",function(e){
+  if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}
+  else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}
+});
+$("full").addEventListener("click",function(){
+  try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}
+});
+/* redraw only when the window width really changes (a taller canvas can toggle the scrollbar) */
+var lastW=window.innerWidth,rz=null;window.addEventListener("resize",function(){if(window.innerWidth===lastW)return;lastW=window.innerWidth;if(rz)cancelAnimationFrame(rz);rz=requestAnimationFrame(render)});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+var m0=(location.search+location.hash).match(/step=(\d+)/);if(m0)go(Math.max(1,Math.min(LAST+1,+m0[1]))-1);else render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multivariate statistics (DATMAN) · FH JOANNEUM</title>
+<style>
+  :root { --a1:#F6A420; --a2:#CB6413; --a3:#FFCA6C; --g1:#BBBBBB; --g3:#444444; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Calibri, Carlito, "Segoe UI", Arial, sans-serif; color:var(--g3); background:#fff; }
+  header { background:var(--a1); color:#fff; padding:28px 24px 22px; }
+  header h1 { margin:0; font-family:Georgia, serif; font-size:30px; }
+  header p { margin:6px 0 0; font-size:17px; }
+  main { max-width:900px; margin:0 auto; padding:24px; }
+  h2 { font-family:Georgia, serif; color:var(--a2); font-size:22px; margin:26px 0 12px; border-bottom:2px solid var(--a3); padding-bottom:6px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px; }
+  a.card { display:block; text-decoration:none; color:inherit; border:1px solid var(--g1); border-left:6px solid var(--a1); border-radius:8px; padding:14px 16px; transition:background .15s; }
+  a.card:hover, a.card:focus { background:#FFF4E0; outline:none; }
+  .card b { display:block; font-size:18px; margin-bottom:4px; color:var(--g3); }
+  .card span { font-size:15px; line-height:1.35; }
+  .card i { display:block; font-style:normal; font-size:13px; color:#888; margin-top:6px; }
+  footer { max-width:900px; margin:0 auto; padding:10px 24px 30px; font-size:13px; color:#888; }
+  footer a { color:var(--a2); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Multivariate statistics (DATMAN)</h1>
+  <p>Interactive animations to try yourself · FH JOANNEUM, Department of Health Studies</p>
+</header>
+<main>
+  <h2>Foundations</h2>
+  <div class="grid">
+    <a class="card" href="datman-a7-eigenvektoren.html"><b>Eigenvectors and eigenvalues</b><span>Turn a vector and see when the matrix only stretches it.</span></a>
+    <a class="card" href="datman-a1-euklid-mahalanobis.html"><b>Euclidean vs. Mahalanobis distance</b><span>Two samples, equally far away. Are they equally unusual?</span></a>
+  </div>
+  <h2>Dimension reduction and classification</h2>
+  <div class="grid">
+    <a class="card" href="datman-a2-pca-drehung.html"><b>PCA as a rotation</b><span>One number instead of two: body weight and height become body mass.</span></a>
+    <a class="card" href="datman-a7-eigenvektoren.html?step=8"><b>PCA with eigenvectors</b><span>The eigenvectors of the covariance matrix are the principal components.</span></a>
+    <a class="card" href="datman-a4-plsda-zufall.html"><b>PLS-DA: real difference or noise?</b><span>Training, test, permutation test and data leakage on Iris and simulated LC-MS data.</span></a>
+  </div>
+  <h2>Clustering</h2>
+  <div class="grid">
+    <a class="card" href="datman-a6-dendrogramm.html"><b>Hierarchical clustering</b><span>Distance matrix and dendrogram step by step, with three linkage rules.</span></a>
+    <a class="card" href="datman-a5-kmeans.html"><b>k-means step by step</b><span>Assign, move, repeat. Start points, WCSS and the elbow.</span></a>
+  </div>
+  <h2>Validation and classifiers</h2>
+  <div class="grid">
+    <a class="card" href="datman-a10-overfitting.html"><b>Overfitting: training, validation and test</b><span>Degrees of freedom as a bank account, model complexity, test data in the vault, cross-validation.</span></a>
+    <a class="card" href="datman-a9-schwelle-roc.html"><b>Cut-off, confusion matrix and ROC</b><span>Sensitivity, specificity, PPV, ROC and AUC, prevalence, F1 for unbalanced groups.</span></a>
+    <a class="card" href="datman-a11-knn.html"><b>k-nearest neighbours (kNN)</b><span>Ask the closest patients: k, standardizing, unequal groups, Mahalanobis and outliers.</span></a>
+    <a class="card" href="datman-a8-svm.html"><b>Support Vector Machines (SVM)</b><span>Cut-off, margin and support vectors, the penalty C and the kernel trick.</span></a>
+    <a class="card" href="datman-a12-ann.html"><b>Neural network playground</b><span>Two hidden nodes bend a curve: weights, biases, softplus and training.</span></a>
+  </div>
+</main>
+<footer>All pages run directly in the browser, also on your phone, no login. · <a href="index.html">All animations (DoE and DATMAN)</a></footer>
+</body>
+</html>

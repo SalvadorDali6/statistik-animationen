@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cut-off, confusion matrix and ROC</title>
+<style>
+/* A9 v2: new step 6 "Comparing models" (three ROC curves); no slide numbers in the texts; key sentence bold;
+   Classification Learner hints as an italic paragraph; metrics explained as questions; second column in step 9 clearer.
+   A9 v1: cut-off, confusion matrix, sensitivity/specificity, PPV/NPV, ROC/AUC, prevalence, HIV example,
+   unbalanced classes and F1 (slides 298-307 plus new content).
+   Small data = the 12 people of slides 298-307 (biomarker in mg/ml, reconstructed from the ROC table of slide 305):
+   sick 7.5 10.7 11.1 21.4 25 30, healthy 3 5 6.8 8 11 13. Positive if biomarker >= cut-off.
+   Large data: simulated, healthy N(9, 3.5), sick N(16, 5), 1000 each. Link with ?step=N (1-10). Accent = FH #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent2:#CB6413; --accent3:#FFCA6C; --accent-soft:rgba(246,164,32,.22);
+  --red:#d7261e; --blue:#1f5fb4; --tred:rgba(215,38,30,.07); --tblue:rgba(31,95,180,.07);
+  --ok:#FFF1D6; --bad:#eef0f2;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046;
+    --red:#f0736b; --blue:#6aa2e6; --tred:rgba(240,115,107,.09); --tblue:rgba(106,162,230,.09);
+    --ok:#3a2f1a; --bad:#2a2f34;}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1180px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto minmax(220px,1fr);gap:12px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.seg>span{font-weight:600;color:var(--muted)}
+.seg[hidden],.ctl[hidden]{display:none}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button:disabled{opacity:.45;cursor:default}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:4px 0 0}
+.stepno{color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+.controls{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px 28px;align-items:center}
+.controls:empty{display:none}
+.status{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:84px}
+.status p{margin:0;font-size:1.12rem;max-width:80ch}
+.status strong{font-weight:750}
+.status .cl{display:block;margin-top:8px;font-style:italic;color:var(--muted)}
+.r{color:var(--red)} .b{color:var(--blue)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 2px}
+.card p.note{margin:2px 0 8px;color:var(--muted);font-size:.92rem}
+canvas{display:block;width:100%;height:auto}
+#sc{aspect-ratio:760/330;touch-action:pan-y}
+#roc{aspect-ratio:1/1}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.grid.one{grid-template-columns:minmax(0,620px);justify-content:center}
+/* confusion matrix */
+table.cm{border-collapse:separate;border-spacing:4px;width:100%;font-variant-numeric:tabular-nums;margin:4px 0 6px}
+.cm th{font-weight:650;font-size:.9rem;padding:4px 6px;text-align:center}
+.cm th.h{background:var(--accent);color:#1f2328;border-radius:6px}
+.cm td{text-align:center;padding:8px 6px;border-radius:8px;font-size:1.25rem;font-weight:650}
+.cm td small{display:block;font-size:.78rem;font-weight:600;color:var(--muted)}
+.cm td.ok{background:var(--ok)} .cm td.bad{background:var(--bad)}
+.cm td.mark{outline:3px solid var(--accent2)}
+/* metrics */
+.mx{display:grid;grid-template-columns:auto auto 1fr;gap:6px 14px;align-items:baseline;margin-top:6px}
+.mx.two{grid-template-columns:auto auto auto 1fr}
+.mx .n{font-weight:650;white-space:nowrap}
+.mx .v{font-weight:700;font-size:1.15rem;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.mx .w{color:var(--muted);font-size:.9rem}
+.mx .hd{color:var(--muted);font-size:.8rem;font-weight:650;text-align:right}
+.mx .new{background:var(--accent-soft);border-radius:6px;padding:0 4px}
+.mx.two{column-gap:8px}
+.mx .c1,.mx .c2{padding:2px 8px;border-radius:6px}
+.mx .v.c1{background:var(--ok)} .mx .v.c2{background:var(--bad)}
+.mx .hd.c1,.mx .hd.c2{font-size:.85rem;color:var(--ink);text-align:center;white-space:normal;max-width:9em;line-height:1.15}
+.mx .hd.c1{background:var(--accent)} .mx .hd.c2{background:var(--muted);color:var(--panel)}
+@media (max-width:860px){.bar,.grid{grid-template-columns:1fr}.mx .w{grid-column:1/-1;margin:-4px 0 4px}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Cut-off, confusion matrix and ROC</h1>
+    <p class="sub">How good is a test? It depends on the cut-off, and on who is tested.</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="seg" id="dataBox" role="group" aria-label="Data set">
+    <span>Data:</span>
+    <button id="dSmall" type="button" aria-pressed="true">12 people (slides)</button>
+    <button id="dBig" type="button" aria-pressed="false">Large data set</button>
+  </div>
+  <div class="seg" id="modelBox" role="group" aria-label="Model" hidden>
+    <span>Model:</span>
+    <button id="mA" type="button" aria-pressed="false">A</button>
+    <button id="mB" type="button" aria-pressed="true">B</button>
+    <button id="mC" type="button" aria-pressed="false">C</button>
+  </div>
+  <div class="controls">
+    <div class="ctl" id="cutBox"><label for="cut">Cut-off (biomarker, mg/ml) <output id="cutOut"></output></label>
+      <input id="cut" type="range" min="0" max="32" step="0.05" value="12.05"></div>
+    <div class="seg" id="prevBtns" role="group" aria-label="Prevalence">
+      <span>Sick in the population:</span>
+      <button id="pv50" type="button" aria-pressed="false">50 %</button>
+      <button id="pv20" type="button" aria-pressed="true">20 %</button>
+    </div>
+    <div class="ctl" id="prevBox"><label for="prev">Prevalence (share of sick people) <output id="prevOut"></output></label>
+      <input id="prev" type="range" min="0" max="100" step="1" value="50"></div>
+  </div>
+</div>
+
+<div class="status"><p id="say"></p></div>
+
+<div class="card">
+  <h2 id="title"></h2>
+  <p class="note" id="note"></p>
+  <canvas id="sc" width="760" height="330" aria-label="Biomarker values and cut-off"></canvas>
+</div>
+
+<div class="grid" id="grid">
+  <div class="card" id="mCard">
+    <h2>Confusion matrix</h2>
+    <p class="note" id="cmNote"></p>
+    <table class="cm" id="cm"></table>
+    <div class="mx" id="mx"></div>
+  </div>
+  <div class="card" id="rCard" hidden>
+    <h2>ROC curve</h2>
+    <p class="note" id="rocNote"></p>
+    <canvas id="roc" width="600" height="600" aria-label="ROC curve"></canvas>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var LAST=9,W=760,H=330;
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+var U=1;function fs(n){return Math.round(n*U)}
+function setU(){U=Math.max(1,Math.min(1.7,640/Math.max(320,Math.min(window.innerWidth,900)-40)));
+  /* phones: narrower strip canvas, so everything is drawn larger */
+  var nw=window.innerWidth<620?540:760;if(nw!==W){W=nw;var c=$("sc");c.width=W;c.style.aspectRatio=W+"/"+H}if(W<760)U=Math.min(U,1.25)}
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function ease(t){return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2}
+function pct(x){if(!isFinite(x))return "–";var v=(x*100).toFixed(1);return (v.slice(-2)===".0"?v.slice(0,-2):v)+" %"}
+function num(x){return Math.round(x).toLocaleString("en-US")}
+function makeRng(seed){var s=seed|0;return function(){s=s+0x6D2B79F5|0;var t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/* ---------- data ---------- */
+var SMALL={sick:[7.5,10.7,11.1,21.4,25,30],healthy:[3,5,6.8,8,11,13],max:32};
+var BIG=(function(){var r=makeRng(42);function g(){var u=Math.max(r(),1e-12),v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+  function cl(v){return Math.min(35.5,Math.max(0.3,v))}var s=[],h=[];for(var i=0;i<1000;i++){h.push(cl(9+3.5*g()));s.push(cl(16+5*g()))}return {sick:s,healthy:h,max:36}})();
+function roc(D){var all=D.sick.concat(D.healthy).slice().sort(function(a,b){return b-a}),th=[Infinity],pts=[];
+  all.forEach(function(v){if(v!==th[th.length-1])th.push(v)});
+  th.forEach(function(t){pts.push({t:t,fpr:D.healthy.filter(function(v){return v>=t}).length/D.healthy.length,tpr:D.sick.filter(function(v){return v>=t}).length/D.sick.length})});
+  var auc=0;for(var i=1;i<pts.length;i++)auc+=(pts[i].fpr-pts[i-1].fpr)*(pts[i].tpr+pts[i-1].tpr)/2;
+  return {pts:pts,auc:auc}}
+function sim(seed,mh,sh,ms,ss){var r=makeRng(seed);function g(){var u=Math.max(r(),1e-12),v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+  function cl(v){return Math.min(35.5,Math.max(0.3,v))}var s=[],h=[];for(var i=0;i<1000;i++){h.push(cl(mh+sh*g()));s.push(cl(ms+ss*g()))}return {sick:s,healthy:h,max:36}}
+SMALL.roc=roc(SMALL);BIG.roc=roc(BIG);
+/* three models for the same people: good, medium (= large data set), weak */
+var MODELS=[{name:"Model A",data:sim(7,9,3,18,4.5)},{name:"Model B",data:BIG},{name:"Model C",data:sim(11,10,4,12,4.5)}];
+MODELS.forEach(function(m){if(!m.data.roc)m.data.roc=roc(m.data);m.roc=m.data.roc});
+var HIV={sens:0.999,spec:0.998};
+
+/* ---------- state ---------- */
+var STEPCUT={1:12.05,2:12.05,3:7.75,4:7.75,5:12.05,6:12.05,8:12.05,9:12.05};
+var st={step:0,big:false,cut:12.05,pv5:0.2,pvHiv:0.0007,pv8:0.2,anim:null,sweep:null,from:12.05,model:1};
+function D(){if(st.step===5)return MODELS[st.model].data;return (st.big&&(st.step===6||st.step===8||st.step===9))?BIG:SMALL}
+function counts(cut){var d=D(),tp=d.sick.filter(function(v){return v>=cut}).length,tn=d.healthy.filter(function(v){return v<cut}).length;
+  return {tp:tp,fn:d.sick.length-tp,tn:tn,fp:d.healthy.length-tn,nS:d.sick.length,nH:d.healthy.length}}
+function prevalence(){var s=st.step;if(s===6)return st.pv5;if(s===7)return st.pvHiv;if(s===8)return 0.2;if(s===9)return st.pv8;return null}
+/* metrics: from counts (sample) or from sensitivity/specificity and prevalence (expected per N people) */
+function metrics(){
+  var s=st.step,p=prevalence(),sens,spec,M={};
+  if(s===7){sens=HIV.sens;spec=HIV.spec}else{var c=counts(st.cut);sens=c.tp/c.nS;spec=c.tn/c.nH;M.c=c}
+  if(p===null){var c2=M.c;M.tp=c2.tp;M.fn=c2.fn;M.fp=c2.fp;M.tn=c2.tn;M.N=c2.nS+c2.nH;M.sample=true}
+  else{var N=(s===7||p<0.01)?100000:10000;M.N=N;M.tp=sens*p*N;M.fn=(1-sens)*p*N;M.tn=spec*(1-p)*N;M.fp=(1-spec)*(1-p)*N;M.sample=false;M.p=p}
+  M.sens=sens;M.spec=spec;M.acc=(M.tp+M.tn)/(M.tp+M.tn+M.fp+M.fn);
+  M.ppv=M.tp+M.fp>0?M.tp/(M.tp+M.fp):NaN;M.npv=M.tn+M.fn>0?M.tn/(M.tn+M.fn):NaN;
+  M.f1=(M.ppv+M.sens)>0&&isFinite(M.ppv)?2*M.ppv*M.sens/(M.ppv+M.sens):0;
+  return M;
+}
+
+/* ---------- strip plot ---------- */
+function frame(){var d=D();return {L:Math.round(26+fs(19)*3.6),R:W-24,max:d.max,yS:122,yH:214,axis:H-52}}
+function X(v){var f=frame();return f.L+v/f.max*(f.R-f.L)}
+function label(g,txt,x,y,col,size,weight,align,base,maxW){var sz=fs(size||18);g.font=(weight||"600")+" "+sz+"px "+FONT;
+  if(maxW)while(g.measureText(txt).width>maxW&&sz>10){sz--;g.font=(weight||"600")+" "+sz+"px "+FONT}g.textAlign=align||"left";g.textBaseline=base||"alphabetic";
+  g.lineJoin="round";g.lineWidth=6;g.strokeStyle=css("--panel");g.strokeText(txt,x,y);g.fillStyle=col;g.fillText(txt,x,y)}
+function drawStrip(){
+  setU();var c=$("sc"),g=c.getContext("2d"),f=frame(),d=D(),s=st.step;
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),red=css("--red"),blue=css("--blue"),acc=css("--accent"),acc2=css("--accent2"),panel=css("--panel");
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  if(s===7){drawHiv(g);return}
+  var hasCut=s>=1,cut=st.cut;
+  /* regions */
+  if(hasCut){g.fillStyle=css("--tblue");g.fillRect(f.L,30,X(cut)-f.L,f.axis-30);g.fillStyle=css("--tred");g.fillRect(X(cut),30,f.R-X(cut),f.axis-30);
+    label(g,"← called healthy",X(cut)-10,22,blue,16,"700","right","middle");label(g,"called sick →",X(cut)+10,22,red,16,"700","left","middle")}
+  /* rows */
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();g.moveTo(f.L,f.yS);g.lineTo(f.R,f.yS);g.moveTo(f.L,f.yH);g.lineTo(f.R,f.yH);g.stroke();
+  label(g,"sick",f.L-12,f.yS-(d!==SMALL?30:0),red,19,"700","right","middle");label(g,"healthy",f.L-12,f.yH-(d!==SMALL?30:0),blue,19,"700","right","middle");
+  if(d===SMALL){
+    function dots(arr,y,col,sick){arr.forEach(function(v,i){var pos=v>=cut,right=!hasCut||(sick?pos:!pos);
+      var yy=y+((i>0&&Math.abs(X(v)-X(arr[i-1]))<20)?-16*Math.min(U,1.3):0);
+      g.beginPath();g.arc(X(v),yy,10*Math.min(U,1.3),0,2*Math.PI);g.fillStyle=col;g.globalAlpha=right?1:0.35;g.fill();g.globalAlpha=1;
+      if(!right){g.save();g.setLineDash([4,3]);g.beginPath();g.arc(X(v),yy,15*Math.min(U,1.3),0,2*Math.PI);g.lineWidth=2.5;g.strokeStyle=col;g.stroke();g.restore()}})}
+    dots(SMALL.sick,f.yS,red,true);dots(SMALL.healthy,f.yH,blue,false);
+  }else{
+    /* histograms, bin 1 mg/ml; bars up from each row line; correct part solid, wrong part pale */
+    function hist(arr,y,col,sick){var bins=new Array(36).fill(0);arr.forEach(function(v){bins[Math.min(35,Math.floor(v))]++});var mx=Math.max.apply(null,bins);
+      bins.forEach(function(n,i){if(!n)return;var h=n/mx*74,mid=i+0.5,pos=mid>=cut,right=!hasCut||(sick?pos:!pos);
+        g.globalAlpha=right?0.9:0.3;g.fillStyle=col;g.fillRect(X(i)+1,y-h,X(i+1)-X(i)-2,h);g.globalAlpha=1})}
+    hist(d.sick,f.yS,red,true);hist(d.healthy,f.yH,blue,false);
+  }
+  /* box labels */
+  if(hasCut){var c2=counts(cut),sm=d===SMALL,yo=sm?-36:-88;
+    function bl(txt,x,y,col,align){label(g,txt,x,y,col,16,"700",align,"middle")}
+    bl("FN "+c2.fn,X(cut)-10,f.yS+(sm?30:16),muted,"right");bl("TP "+c2.tp,X(cut)+10,f.yS+(sm?30:16),muted,"left");
+    bl("TN "+c2.tn,X(cut)-10,f.yH+(sm?30:16),muted,"right");bl("FP "+c2.fp,X(cut)+10,f.yH+(sm?30:16),muted,"left");}
+  /* axis */
+  g.strokeStyle=muted;g.lineWidth=3;g.beginPath();g.moveTo(f.L,f.axis);g.lineTo(f.R,f.axis);g.stroke();
+  g.font=fs(15)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";
+  for(var k=0;k<=f.max;k+=4){g.lineWidth=2;g.beginPath();g.moveTo(X(k),f.axis-5);g.lineTo(X(k),f.axis+5);g.stroke();g.fillText(String(k),X(k),f.axis+9)}
+  label(g,s===5?"score of "+MODELS[st.model].name:"biomarker (mg/ml)",(f.L+f.R)/2,f.axis+26+fs(14),ink,17,"600","center");
+  /* cut-off line */
+  if(hasCut){g.strokeStyle=acc;g.lineWidth=5;g.beginPath();g.moveTo(X(cut),58);g.lineTo(X(cut),f.axis+4);g.stroke();
+    label(g,"cut-off "+cut.toFixed(2),X(cut),46,acc2,16,"700",X(cut)>W-120?"right":(X(cut)<f.L+60?"left":"center"),"middle")}
+}
+/* HIV: positive results as two bars (true and false positives), per 100,000 people */
+function drawHiv(g){
+  var M=metrics(),ink=css("--ink"),muted=css("--muted"),red=css("--red"),blue=css("--blue");
+  var L=30,R=W-30,tot=M.tp+M.fp,y=150,h=64,xm=L+(R-L)*M.tp/tot;
+  label(g,"All positive results among "+num(M.N)+" people: "+num(tot),L,58,ink,19,"700","left","middle",R-L);
+  g.fillStyle=red;g.fillRect(L,y-h/2,Math.max(2,xm-L),h);g.fillStyle=blue;g.globalAlpha=0.45;g.fillRect(xm,y-h/2,R-xm,h);g.globalAlpha=1;
+  g.strokeStyle=ink;g.lineWidth=2;g.strokeRect(L,y-h/2,R-L,h);
+  label(g,"really HIV+ (TP): "+num(M.tp),L,y+h/2+28,red,18,"700","left","middle",(R-L)/2-8);
+  label(g,"false alarms (FP): "+num(M.fp),R,y+h/2+28,blue,18,"700","right","middle",(R-L)/2-8);
+  label(g,"A positive result means HIV+ in "+pct(M.ppv)+" of cases (PPV).",(L+R)/2,y+h/2+82,ink,20,"700","center","middle",R-L);
+}
+
+/* ---------- ROC ---------- */
+function drawRoc(trace){
+  var c=$("roc"),g=c.getContext("2d"),S=600,d=D(),R=d.roc,ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),acc2=css("--accent2"),panel=css("--panel");
+  var L=Math.round(30+fs(17)*2.4),Rr=S-22,T=22,B=S-Math.round(30+fs(17)*2.4);
+  function px(v){return L+v*(Rr-L)} function py(v){return B-v*(B-T)}
+  g.fillStyle=panel;g.fillRect(0,0,S,S);
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();for(var k=0;k<=5;k++){g.moveTo(px(k/5),T);g.lineTo(px(k/5),B);g.moveTo(L,py(k/5));g.lineTo(Rr,py(k/5))}g.stroke();
+  g.strokeStyle=ink;g.lineWidth=2;g.strokeRect(L,T,Rr-L,B-T);
+  g.font=fs(16)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";for(k=0;k<=5;k++)g.fillText((k/5).toFixed(1),px(k/5),B+8);
+  g.textAlign="right";g.textBaseline="middle";for(k=0;k<=5;k++)g.fillText((k/5).toFixed(1),L-8,py(k/5));
+  label(g,"1 − specificity (false alarms)",(L+Rr)/2,B+16+fs(16)+fs(12),ink,17,"600","center","middle");
+  g.save();g.translate(14+fs(9),(T+B)/2);g.rotate(-Math.PI/2);label(g,"sensitivity (found sick)",0,0,ink,17,"600","center","middle");g.restore();
+  g.setLineDash([6,6]);g.strokeStyle=muted;g.lineWidth=2;g.beginPath();g.moveTo(px(0),py(0));g.lineTo(px(1),py(1));g.stroke();g.setLineDash([]);
+  label(g,"coin toss",px(0.62),py(0.55),muted,16,"600","left","middle");
+  /* step 6: the other models as thin lines, legend with AUC */
+  function path(P,stairs){g.beginPath();P.forEach(function(p,i){var x=px(p.fpr),y=py(p.tpr);if(i){if(stairs){g.lineTo(x,py(P[i-1].tpr));g.lineTo(x,y)}else g.lineTo(x,y)}else g.moveTo(x,y)})}
+  var multi=st.step===5;
+  if(multi){MODELS.forEach(function(m,i){if(i===st.model)return;path(m.roc.pts,false);g.strokeStyle=muted;g.lineWidth=2;g.setLineDash(i===0?[]:[2,4]);g.stroke();g.setLineDash([])});
+    MODELS.forEach(function(m,i){var yy=py(0.06)-(2-i)*fs(26),sel=i===st.model;g.strokeStyle=sel?css("--blue"):muted;g.lineWidth=sel?4:2;g.setLineDash(sel||i===0?[]:[2,4]);
+      g.beginPath();g.moveTo(px(0.52),yy);g.lineTo(px(0.62),yy);g.stroke();g.setLineDash([]);
+      label(g,m.name+": AUC "+m.roc.auc.toFixed(2),px(0.65),yy,sel?ink:muted,17,sel?"700":"600","left","middle")})}
+  /* curve: up to the traced cut-off during the sweep */
+  var lim=trace===undefined?-Infinity:trace,pts=R.pts.filter(function(p){return p.t>=lim||p.t===Infinity});
+  if(trace!==undefined){var cc=counts(trace);pts.push({fpr:cc.fp/cc.nH,tpr:cc.tp/cc.nS})}
+  g.beginPath();pts.forEach(function(p,i){var x=px(p.fpr),y=py(p.tpr);if(i){if(d===SMALL){g.lineTo(x,py(pts[i-1].tpr));g.lineTo(x,y)}else g.lineTo(x,y)}else g.moveTo(x,y)});
+  g.strokeStyle=css("--blue");g.lineWidth=4;g.lineJoin="round";g.stroke();
+  if(trace===undefined&&!multi)label(g,"AUC = "+R.auc.toFixed(2),px(0.96),py(0.08),ink,20,"700","right","middle");
+  var cut=trace===undefined?st.cut:trace,c2=counts(cut),x=px(c2.fp/c2.nH),y=py(c2.tp/c2.nS);
+  g.beginPath();g.arc(x,y,11,0,2*Math.PI);g.fillStyle=acc;g.fill();g.lineWidth=3;g.strokeStyle=ink;g.stroke();
+}
+
+/* ---------- texts ---------- */
+var TITLES=["One number, two groups","A cut-off sorts everyone into four boxes","Reading the confusion matrix","Moving the cut-off","The ROC curve: all cut-offs at once","Comparing models: one ROC curve each",
+  "Same test, other population: prevalence","The HIV example","Unbalanced groups: accuracy can fool you","Try it yourself"];
+function say(){
+  var s=st.step,M=metrics();
+  switch(s){
+    case 0:return "A blood test gives one number per person (biomarker in mg/ml). Red: 6 sick people, blue: 6 healthy people. Above which value should the test say sick? And how do we know whether the test is any good? Press Next.";
+    case 1:return "Cut-off at 12.05 mg/ml (where the logistic regression gives p = 0.5). Everyone at or above it is called sick. So each person lands in one of four boxes: TP (sick, called sick), FN (sick, but missed), FP (healthy, but false alarm), TN (healthy, called healthy). The four boxes together are the confusion matrix.";
+    case 2:return "From the four boxes come the key numbers. Sensitivity (recall): "+M.tp+" of "+(M.tp+M.fn)+" sick people are found. Specificity: "+M.tn+" of "+(M.tn+M.fp)+" healthy people are cleared. PPV (precision): "+M.tp+" of "+(M.tp+M.fp)+" positive results are really sick. Sensitivity and specificity describe the test, PPV and NPV what a result means for the patient.";
+    case 3:return "Lower the cut-off to 7.75 mg/ml: more sick people are found, but more healthy people get a false alarm. Moving the cut-off always trades sensitivity against specificity. Drag the cut-off or use the slider. Now: sensitivity "+pct(M.sens)+", specificity "+pct(M.spec)+".";
+    case 4:return "Every cut-off gives one pair: sensitivity and 1 − specificity. Going through all cut-offs draws the ROC curve. A perfect test goes straight up to the top left corner, a coin toss follows the diagonal. The area under the curve (AUC) sums it up: 1 = perfect, 0.5 = coin toss. Here AUC = "+D().roc.auc.toFixed(2)+".";
+    case 5:return "Three models give scores to the same 2,000 people (simulated). Each model has its own ROC curve. The closer a curve gets to the top left corner, the better the model separates sick from healthy, whatever cut-off you pick later. The AUC puts this into one number: "+MODELS.map(function(m){return m.name+" "+m.roc.auc.toFixed(2)}).join(", ")+". Pick a model to see its scores.||In the Classification Learner you compare trained models the same way: ROC curve and AUC for each model.";
+    case 6:var p50=ppvAt(0.5),p20=ppvAt(0.2);
+      return "So far half of the people were sick. In real life usually far fewer are. Same test, same sensitivity and specificity: with 50 % sick the PPV is "+pct(p50)+", with 20 % sick (2,000 of 10,000, like the heart disease data in the MATLAB exercise) only "+pct(p20)+". More of the positive results are now false alarms. **PPV and NPV depend on the prevalence, sensitivity and specificity do not.**";
+    case 7:return "An HIV test with sensitivity 99.9 % and specificity 99.8 %. Prevalence "+pctP(M.p)+": of "+num(M.N)+" people, "+num(M.tp+M.fn)+" are HIV+, and almost all of them test positive. But 0.2 % of the "+num(M.tn+M.fp)+" healthy people also test positive: "+num(M.fp)+" false alarms. So a positive result means HIV+ only in "+pct(M.ppv)+" of cases. Move the prevalence: in a risk group the same test is far more convincing.";
+    case 8:var A=alwaysHealthy(),cmp=M.acc<A.acc?"lower":"higher";
+      return "The heart disease data in the MATLAB exercise have 8,000 healthy and 2,000 sick people. A model that always says healthy is right in "+pct(A.acc)+" of cases (accuracy), but finds nobody who is sick: recall 0, F1 0. Our test has a "+cmp+" accuracy ("+pct(M.acc)+"), but finds "+pct(M.sens)+" of the sick (F1 "+M.f1.toFixed(2)+"). With unbalanced groups, look at recall, precision and F1, not at accuracy.||In the Classification Learner: confusion matrix (also as true positive rates or positive predictive values) and ROC curve with AUC.";
+    case 9:return "Move the cut-off and the prevalence, switch the data set. Which numbers change with the cut-off? Which change with the prevalence? Which stay the same?";
+  }
+}
+function pctP(p){return p<0.01?(p*100).toFixed(2)+" %":pct(p)}
+function ppvAt(p){var c=counts(st.cut),se=c.tp/c.nS,sp=c.tn/c.nH;return se*p/(se*p+(1-sp)*(1-p))}
+function alwaysHealthy(){return {acc:0.8,sens:0,spec:1,ppv:NaN,npv:0.8,f1:0}}
+function note(){var s=st.step;
+  if(s===7)return "Per 100,000 tested people. Red: really HIV+, blue: healthy.";
+  if(s===5)return "Simulated scores of "+MODELS[st.model].name+" for 1,000 sick and 1,000 healthy people. Pale: on the wrong side of the cut-off. Drag the cut-off.";
+  if(D()===BIG)return "Simulated: 1,000 sick and 1,000 healthy people. Pale: on the wrong side of the cut-off. Drag the cut-off.";
+  return s===0?"The 12 people from the slides. Red: sick, blue: healthy.":"Pale with dashed ring: on the wrong side of the cut-off."+(s===3||s>=5?" Drag the cut-off.":"");
+}
+
+/* ---------- matrix and metrics ---------- */
+var DEFS=[["sens","Sensitivity (recall)","Of all sick people: how many does the test find?"],["spec","Specificity","Of all healthy people: how many does the test call healthy?"],
+  ["acc","Accuracy","Of all people: how many are classified correctly?"],["ppv","PPV (precision)","Positive result: how likely is the person really sick?"],
+  ["npv","NPV","Negative result: how likely is the person really healthy?"],["f1","F1 score","Combines precision and recall: high only if both are high"]];
+function fmtM(k,v){return k==="f1"?(isFinite(v)?v.toFixed(2):"–"):pct(v)}
+function renderMatrix(){
+  var s=st.step,M=metrics(),f=M.sample?function(x){return String(x)}:num;
+  var mark=s===2?{tp:1}:{};
+  $("cmNote").textContent=s===0?"Not filled yet: we need a cut-off first.":(M.sample?"Counts of the "+num(M.N)+" people.":"Expected per "+num(M.N)+" people, prevalence "+pctP(M.p)+".");
+  function cell(k,lab,ok){return '<td class="'+(ok?"ok":"bad")+'">'+(s===0?"–":f(M[k]))+'<small>'+lab+'</small></td>'}
+  $("cm").innerHTML='<tr><th></th><th></th><th class="h" colspan="2">predicted</th></tr>'+
+    '<tr><th></th><th></th><th>YES (sick)</th><th>NO (healthy)</th></tr>'+
+    '<tr><th class="h" rowspan="2" style="writing-mode:vertical-rl;transform:rotate(180deg)">actual</th><th class="r">YES (sick)</th>'+cell("tp","TP",1)+cell("fn","FN",0)+'</tr>'+
+    '<tr><th class="b">NO (healthy)</th>'+cell("fp","FP",0)+cell("tn","TN",1)+'</tr>';
+  var mx=$("mx");
+  if(s<2){mx.innerHTML="";mx.className="mx";return}
+  var keys=DEFS.filter(function(d){return d[0]!=="f1"||s>=8});
+  if(s===8){var A=alwaysHealthy();mx.className="mx two";
+    mx.innerHTML='<span></span><span class="hd c1">our test</span><span class="hd c2">model: always “healthy”</span><span></span>'+keys.map(function(d){return '<span class="n'+(d[0]==="f1"?" new":"")+'">'+d[1]+'</span><span class="v c1">'+fmtM(d[0],M[d[0]])+'</span><span class="v c2">'+fmtM(d[0],A[d[0]])+'</span><span class="w">'+d[2]+'</span>'}).join("")}
+  else{mx.className="mx";mx.innerHTML=keys.map(function(d){return '<span class="n">'+d[1]+'</span><span class="v">'+fmtM(d[0],M[d[0]])+'</span><span class="w">'+d[2]+'</span>'}).join("")}
+}
+
+/* ---------- render ---------- */
+function paint(t){t=t.replace(/\b(sick|red)\b/g,'<b class="r">$1</b>').replace(/\b(healthy|blue)\b/g,'<b class="b">$1</b>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  var parts=t.split("||");return parts[0]+(parts[1]?'<span class="cl">'+parts[1]+'</span>':"")}
+function render(){
+  var s=st.step,d=D();
+  $("title").textContent=TITLES[s];$("note").textContent=note();$("say").innerHTML=paint(say());
+  $("stepno").textContent="Step "+(s+1)+" of "+(LAST+1);$("back").disabled=s===0;$("next").disabled=s===LAST;
+  $("cutBox").hidden=!(s===3||s===4||s===5||s===6||s===8||s===9);
+  $("modelBox").hidden=s!==5;["mA","mB","mC"].forEach(function(id,i){$(id).setAttribute("aria-pressed",st.model===i?"true":"false")});
+  $("cut").max=d.max;$("cutBox").querySelector("label").firstChild.nodeValue=s===5?"Cut-off (model score) ":"Cut-off (biomarker, mg/ml) ";$("cut").value=st.cut;$("cutOut").textContent=st.cut.toFixed(2);
+  $("prevBtns").hidden=s!==6;$("pv50").setAttribute("aria-pressed",st.pv5===0.5?"true":"false");$("pv20").setAttribute("aria-pressed",st.pv5===0.2?"true":"false");
+  $("prevBox").hidden=!(s===7||s===9);
+  if(s===7||s===9){var p=s===7?st.pvHiv:st.pv8;$("prev").value=Math.round(prevToSl(p));$("prevOut").textContent=pctP(p)}
+  $("dataBox").hidden=!(s===6||s===8||s===9);$("dSmall").setAttribute("aria-pressed",st.big?"false":"true");$("dBig").setAttribute("aria-pressed",st.big?"true":"false");
+  var showRoc=s===4||s===5||s===6||s===8||s===9;$("rCard").hidden=!showRoc;$("grid").className=showRoc?"grid":"grid one";
+  $("sc").style.touchAction=(s===3||s===4||s===5||s===6||s===8||s===9)?"none":"pan-y";
+  $("rocNote").textContent=s===5?"Thick blue: the selected model. Grey: the other two. Orange: the current cut-off.":"Each cut-off gives one point. Orange: the current cut-off.";
+  renderMatrix();drawStrip();if(showRoc&&!st.sweep)drawRoc();
+}
+/* prevalence slider: log scale 0.01 % ... 50 % */
+function slToPrev(v){return Math.pow(10,-4+v/100*Math.log10(5000))}
+function prevToSl(p){return (Math.log10(p)+4)/Math.log10(5000)*100}
+
+/* ---------- animations ---------- */
+function stopAll(){if(st.anim){cancelAnimationFrame(st.anim);st.anim=null}if(st.sweep){cancelAnimationFrame(st.sweep);st.sweep=null}}
+function glide(to,ms){var from=st.cut,t0=null;function tick(now){if(t0===null)t0=now;var t=Math.min(1,(now-t0)/ms);st.cut=from+(to-from)*ease(t);render();st.anim=t<1?requestAnimationFrame(tick):null}st.anim=requestAnimationFrame(tick)}
+function sweep(){var keep=st.cut,mx=D().max,t0=null,ms=3200;
+  function tick(now){if(t0===null)t0=now;var t=Math.min(1,(now-t0)/ms),c=mx*(1-t);st.cut=c;render();drawRoc(c);
+    if(t<1)st.sweep=requestAnimationFrame(tick);else{st.sweep=null;st.cut=keep;render()}}
+  st.sweep=requestAnimationFrame(tick)}
+function go(n,anim){
+  stopAll();n=Math.max(0,Math.min(LAST,n));var old=st.step;st.step=n;
+  if(STEPCUT[n]!==undefined){if(anim&&n===3&&old===2){render();glide(STEPCUT[n],900);return}st.cut=STEPCUT[n]}
+  if(st.cut>D().max)st.cut=D().max;
+  render();
+  if(anim&&n===4&&old===3)sweep();
+}
+
+/* ---------- input ---------- */
+var cv=$("sc"),drag=false;
+function cutFromEvent(e){var r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,f=frame();return Math.max(0,Math.min(f.max,(x-f.L)/(f.R-f.L)*f.max))}
+function canDrag(){var s=st.step;return s===3||s===4||s===5||s===6||s===8||s===9}
+cv.addEventListener("pointerdown",function(e){if(!canDrag())return;var r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width;if(Math.abs(x-X(st.cut))>40*U)return;
+  stopAll();drag=true;try{cv.setPointerCapture(e.pointerId)}catch(err){}e.preventDefault()});
+cv.addEventListener("pointermove",function(e){if(!drag){if(canDrag()){var r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width;cv.style.cursor=Math.abs(x-X(st.cut))<40*U?"ew-resize":"default"}return}
+  st.cut=Math.round(cutFromEvent(e)*20)/20;render();e.preventDefault()});
+function endDrag(){drag=false}
+cv.addEventListener("pointerup",endDrag);cv.addEventListener("pointercancel",endDrag);
+$("cut").addEventListener("input",function(e){stopAll();st.cut=+e.target.value;render()});
+$("prev").addEventListener("input",function(e){var p=slToPrev(+e.target.value);if(st.step===7)st.pvHiv=p;else st.pv8=p;render()});
+["mA","mB","mC"].forEach(function(id,i){$(id).addEventListener("click",function(){stopAll();st.model=i;render()})});
+$("pv50").addEventListener("click",function(){st.pv5=0.5;render()});
+$("pv20").addEventListener("click",function(){st.pv5=0.2;render()});
+$("dSmall").addEventListener("click",function(){stopAll();st.big=false;if(st.cut>D().max)st.cut=12.05;render()});
+$("dBig").addEventListener("click",function(){stopAll();st.big=true;render()});
+$("next").addEventListener("click",function(){go(st.step+1,true)});
+$("back").addEventListener("click",function(){go(st.step-1,false)});
+$("reset").addEventListener("click",function(){stopAll();st.big=false;st.model=1;st.pv5=0.2;st.pvHiv=0.0007;st.pv8=0.2;go(0,false)});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){if(st.step<LAST)go(st.step+1,true);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1,false);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+var lastW=window.innerWidth;window.addEventListener("resize",function(){if(window.innerWidth===lastW)return;lastW=window.innerWidth;render()});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+var m=(location.search+location.hash).match(/step=(\d+)/);go(m?Math.max(1,Math.min(LAST+1,+m[1]))-1:0,false);
+})();
+</script>
+</body>
+</html>

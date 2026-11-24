@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eigenvector explorer</title>
+<style>
+/* A7 v5: eigenvectors and eigenvalues. Turn a vector v and watch A·v.
+   When A·v points along v, v is an eigenvector and the stretch factor is the eigenvalue λ.
+   Default (slides 76-81): steps 1-7, ends with the ellipse. No PCA yet.
+   PCA chapter (slides 156-159): open with ?step=8 (or #step=8). Steps 8-10 add the
+   covariance matrix, PC1/PC2 and a free mode; Back still reaches steps 1-7.
+   Step 2 works out the matrix multiplication row by row.
+   v6: covariance matrix = body weight / body height of the PCA slides (6 persons, centered),
+   [87.5 58; 58 50.7], eigenvalues shown with one decimal (129.9 / 8.3). With it, v has length 1 and A·v is drawn 50 times shorter (own scale).
+   Accent = FH #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent-soft:rgba(246,164,32,.22); --blue:#2f6db5; --ok:#2e8b57; --e2:#8e44ad;
+  --r1bg:rgba(142,68,173,.20); --r2bg:rgba(15,139,141,.22);
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046; --blue:#6aa2e6; --ok:#6fcf97; --e2:#c39bd3;}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1180px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:flex;flex-direction:column;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.row{display:flex;gap:10px 22px;flex-wrap:wrap;align-items:center}
+.row[hidden]{display:none}
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lbl{font-weight:600;color:var(--muted)}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.9rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.ctl{flex:1 1 260px}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:4px 0 0}
+.status{display:block;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:100px}
+.status p{margin:0;font-size:1.12rem;max-width:62ch}
+.status.hit{border-left-color:var(--ok)}
+.calc{font-variant-numeric:tabular-nums;font-size:1.15rem;white-space:nowrap;text-align:right}
+.calc .k{color:var(--muted);font-size:.8rem}
+.calc .big{font-size:1.35rem;font-weight:650}
+.grid{display:grid;grid-template-columns:minmax(0,640px) minmax(280px,1fr);gap:12px}
+.side h2{margin-bottom:10px}
+.eq{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0;font-size:1.3rem;font-weight:600}
+.eq .nm{min-width:62px}
+.eq.tight{gap:6px;flex-wrap:nowrap}.eq.tight .mx{font-size:1.05rem;gap:4px 10px;padding:6px 8px}
+.mx{display:inline-grid;gap:4px 16px;padding:6px 12px;border-left:3px solid currentColor;border-right:3px solid currentColor;border-radius:8px;font-variant-numeric:tabular-nums;font-size:1.35rem;font-weight:600;text-align:right}
+.vb{color:var(--blue)} .vo{color:var(--accent)} .vg{color:var(--ok)}
+.hint{color:var(--muted);font-size:.98rem;margin-top:14px}
+.verdict{margin-top:14px;font-size:1.15rem;font-weight:650}
+.box{margin-top:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:1rem}
+.box h3{margin:0 0 6px;font-size:1.02rem}
+.box p{margin:4px 0;color:var(--ink);font-size:.98rem}
+.cd{background:rgba(47,109,181,.22);border-radius:4px;padding:0 4px} .co{background:var(--accent-soft);border-radius:4px;padding:0 4px}
+.e1{color:var(--ok)} .e2c{color:var(--e2)}
+.r1{background:var(--r1bg);border-radius:4px;padding:0 4px} .r2{background:var(--r2bg);border-radius:4px;padding:0 4px}
+.mx .r1,.mx .r2{padding:0 6px}
+.rowcalc{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:center;margin:6px 0 2px;font-size:1.2rem;font-variant-numeric:tabular-nums}
+.rowcalc .rk{color:var(--muted);font-size:.95rem;font-weight:600}
+.rowcalc .vn{color:var(--blue);font-weight:650}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 2px}
+.card p{margin:2px 0 8px;color:var(--muted);font-size:.92rem}
+canvas{display:block;width:100%;height:auto;aspect-ratio:1/1;touch-action:none}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Eigenvector explorer</h1>
+    <p class="sub">Multiply a vector v by a matrix A. Usually A·v points somewhere else. Not so for an eigenvector.</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="row">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="row" id="freeRow" hidden>
+    <div class="seg" role="group" aria-label="Matrix">
+      <span class="lbl">Matrix A:</span>
+      <button id="mSlide" type="button" aria-pressed="true">Example matrix</button>
+      <button id="mSym" type="button" aria-pressed="false">Symmetric matrix</button>
+      <button id="mCov" type="button" aria-pressed="false">Covariance matrix</button>
+    </div>
+    <div class="ctl"><label for="ang">Direction of v <output id="angOut"></output></label>
+      <input id="ang" type="range" min="0" max="360" step="0.5" value="0"></div>
+    <button id="find" type="button">Show eigenvectors</button>
+    <button id="sweep" type="button">Turn v once around</button>
+  </div>
+</div>
+
+<div class="status" id="status">
+  <p id="say"></p>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2 id="cTitle">Vector v and A·v</h2>
+    <p id="cSub"></p>
+    <canvas id="cv" width="640" height="640" tabindex="0" aria-label="Vector v and its product A·v, v draggable"></canvas>
+  </div>
+  <div class="card side">
+    <h2>Calculation</h2>
+    <div id="calc"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+/* ?step=N or #step=N (1-based) picks the start step. From step 8 on, the PCA part
+   (steps 8-10) is included; otherwise the page ends with the ellipse (step 7). */
+var START=(function(){var m=(location.search+" "+location.hash).match(/step=(\d+)/);var n=m?parseInt(m[1],10):1;return Math.max(1,Math.min(10,n))-1})();
+var PCA=START>=7;
+var W=640,H=640,PD=40,R=10,FREE=9,LAST=PCA?FREE:6,VLEN=Math.sqrt(5);
+var MATS={slide:[[2,4],[2,0]],sym:[[1,2],[2,1]],cov:[[87.5,58],[58,50.7]]};
+/* drawing scale: the covariance matrix stretches up to 130 times, so it gets its own view */
+var VS=1,AS=1,TICKS=[-8,-4,4,8];
+function setView(){var c=st.mat==='cov';R=c?16:10;VLEN=c?1:Math.sqrt(5);VS=c?5:1;AS=c?0.1:1;TICKS=c?[-10,-5,5,10]:[-8,-4,4,8]}
+var st={step:0,mat:'slide',v:[4,2],showEig:false,trace:[],anim:null};
+/* the 6 persons of the PCA slides, centered: BW-C (kg), BH-C (cm) */
+var CLOUD=[[-2.5,-0.3],[-12.5,-5.3],[2.5,4.7],[12.5,9.7],[-7.5,-10.3],[7.5,1.7]];
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function fmt(x){var r=Math.round(x*100)/100;return (Math.abs(r)<0.005?0:r).toString().replace("-","−")}
+function A(){return MATS[st.mat]}
+/* eigenvalues of the covariance matrix with one decimal, as on the PCA slides (129.9 / 8.3) */
+function fmtL(x){return st.mat==='cov'?(Math.round(x*10)/10).toFixed(1).replace("-","−"):fmt(x)}
+function mul(M,v){return [M[0][0]*v[0]+M[0][1]*v[1],M[1][0]*v[0]+M[1][1]*v[1]]}
+function len(v){return Math.hypot(v[0],v[1])}
+function angDeg(v){var a=Math.atan2(v[1],v[0])*180/Math.PI;return a<0?a+360:a}
+/* angle between v and A·v in degrees (0 = same direction, 180 = opposite) */
+function between(v,w){var c=(v[0]*w[0]+v[1]*w[1])/(len(v)*len(w)||1);return Math.acos(Math.max(-1,Math.min(1,c)))*180/Math.PI}
+/* eigenvalues and unit eigenvectors of a 2x2 matrix (real case) */
+function eig(M){
+  var a=M[0][0],b=M[0][1],c=M[1][0],d=M[1][1],m=(a+d)/2,p=a*d-b*c,D=m*m-p;
+  if(D<0)return [];
+  var ls=[m+Math.sqrt(D),m-Math.sqrt(D)];
+  return ls.map(function(l){var v=Math.abs(b)>1e-9?[b,l-a]:(Math.abs(c)>1e-9?[l-d,c]:(Math.abs(a-l)<1e-9?[1,0]:[0,1]));var n=len(v);if(v[1]<-1e-12)n=-n;return {l:l,v:[v[0]/n,v[1]/n]}});
+}
+
+function px(x){return W/2+x*(W/2-PD)/R}
+function py(y){return H/2-y*(H/2-PD)/R}
+
+function arrow(g,v,col,lw,label){
+  var x0=px(0),y0=py(0),x1=px(v[0]),y1=py(v[1]),a=Math.atan2(y1-y0,x1-x0),L=Math.hypot(x1-x0,y1-y0);
+  if(L<2)return;
+  var hl=Math.min(20,L*0.4);
+  g.strokeStyle=col;g.fillStyle=col;g.lineWidth=lw;g.lineCap="round";
+  g.beginPath();g.moveTo(x0,y0);g.lineTo(x1-hl*0.6*Math.cos(a),y1-hl*0.6*Math.sin(a));g.stroke();
+  g.beginPath();g.moveTo(x1,y1);g.lineTo(x1-hl*Math.cos(a-0.4),y1-hl*Math.sin(a-0.4));g.lineTo(x1-hl*Math.cos(a+0.4),y1-hl*Math.sin(a+0.4));g.closePath();g.fill();
+  if(label){g.font="600 21px "+FONT;g.textAlign=v[0]>=0?"left":"right";g.textBaseline=v[1]>=0?"bottom":"top";
+    var tx=x1+(v[0]>=0?10:-10),ty=y1+(v[1]>=0?-6:6);
+    g.lineWidth=6;g.strokeStyle=css("--panel");g.strokeText(label,tx,ty);g.fillStyle=col;g.fillText(label,tx,ty)}
+}
+
+function draw(){
+  setView();var c=$("cv"),g=c.getContext("2d");
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),blue=css("--blue"),ok=css("--ok"),panel=css("--panel");
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();
+  for(var k=-R;k<=R;k++){g.moveTo(px(k),py(-R));g.lineTo(px(k),py(R));g.moveTo(px(-R),py(k));g.lineTo(px(R),py(k))}
+  g.stroke();
+  g.strokeStyle=muted;g.lineWidth=2;g.beginPath();g.moveTo(px(-R),py(0));g.lineTo(px(R),py(0));g.moveTo(px(0),py(-R));g.lineTo(px(0),py(R));g.stroke();
+  g.font="16px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";
+  TICKS.forEach(function(k){g.fillText(String(k),px(k),py(0)+6)});
+  g.textAlign="right";g.textBaseline="middle";TICKS.forEach(function(k){g.fillText(String(k),px(0)-6,py(k))});
+
+  if(st.mat==='cov'&&st.step>=7){g.fillStyle=muted;g.globalAlpha=0.8;CLOUD.forEach(function(p){g.beginPath();g.arc(px(p[0]),py(p[1]),7,0,2*Math.PI);g.fill()});g.globalAlpha=1;
+    g.font="600 17px "+FONT;g.fillStyle=muted;g.textAlign="right";g.textBaseline="bottom";g.fillText("BW-C (kg)",px(R)-4,py(0)-6);g.textAlign="left";g.textBaseline="top";g.fillText("BH-C (cm)",px(0)+8,py(R)+2)}
+  if(st.step===7)return;
+  var v=st.v, showAv=st.step>=1, Av=mul(A(),v);
+  /* trace of A·v while v turns once around */
+  if(st.trace.length>1){g.strokeStyle=acc;g.globalAlpha=0.45;g.lineWidth=3;g.beginPath();
+    st.trace.forEach(function(p,i){if(i)g.lineTo(px(p[0]*AS),py(p[1]*AS));else g.moveTo(px(p[0]*AS),py(p[1]*AS))});g.stroke();g.globalAlpha=1;
+    g.strokeStyle=blue;g.globalAlpha=0.35;g.setLineDash([4,6]);g.beginPath();g.arc(px(0),py(0),VLEN*VS*(W/2-PD)/R,0,2*Math.PI);g.stroke();g.setLineDash([]);g.globalAlpha=1}
+  /* eigenvector directions */
+  if(st.showEig){eig(A()).forEach(function(e,ei){var ec=ei===0?ok:css("--e2");
+    g.setLineDash([12,8]);g.strokeStyle=ec;g.lineWidth=2.5;g.beginPath();g.moveTo(px(-R*1.5*e.v[0]),py(-R*1.5*e.v[1]));g.lineTo(px(R*1.5*e.v[0]),py(R*1.5*e.v[1]));g.stroke();g.setLineDash([]);
+    var t=[0.9*R*e.v[0],0.9*R*e.v[1]];if(t[1]<0||(Math.abs(t[1])<0.01&&t[0]<0))t=[-t[0],-t[1]];
+    g.font="600 18px "+FONT;g.textAlign="left";g.textBaseline="bottom";g.lineWidth=6;g.strokeStyle=panel;
+    var lab=(st.mat==='cov'?(ei===0?"PC1: ":"PC2: "):"")+"λ = "+fmtL(e.l);var lx=px(t[0])+8;if(lx+g.measureText(lab).width>W-6){g.textAlign="right";lx=px(t[0])-8}
+    g.strokeText(lab,lx,py(t[1])-6);g.fillStyle=ec;g.fillText(lab,lx,py(t[1])-6);
+  })}
+  /* step 0: length by Pythagoras */
+  if(st.step===0){g.setLineDash([7,6]);g.strokeStyle=muted;g.lineWidth=2;g.beginPath();g.moveTo(px(v[0]),py(0));g.lineTo(px(v[0]),py(v[1]));g.stroke();g.setLineDash([]);
+    g.font="600 18px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";g.fillText("x = 4",px(2),py(0)+28);g.textAlign="left";g.textBaseline="middle";g.fillText("y = 2",px(v[0])+8,py(1));}
+  var hit=showAv&&isEigen(v,Av);
+  if(showAv)arrow(g,[Av[0]*AS,Av[1]*AS],hit?ok:acc,5,"A·v");
+  arrow(g,[v[0]*VS,v[1]*VS],blue,5,"v");
+  if(st.step>=3){var x1=px(v[0]*VS),y1=py(v[1]*VS);g.beginPath();g.arc(x1,y1,11,0,2*Math.PI);g.lineWidth=2.5;g.strokeStyle=blue;g.stroke()}
+}
+function isEigen(v,Av){var b=between(v,Av);return len(Av)<1e-9||b<1.5||b>178.5}
+
+function mx(rows,cls,cellCls){var c=rows[0].length;return "<span class='mx "+(cls||"")+"' style='grid-template-columns:repeat("+c+",auto)'>"+rows.map(function(r,i){return r.map(function(x,j){var cc=cellCls?cellCls(i,j):"";return "<span"+(cc?" class='"+cc+"'":"")+">"+(typeof x==="number"?fmt(x):x)+"</span>"}).join("")}).join("")+"</span>"}
+function col(v,cls,cellCls){return mx([[v[0]],[v[1]]],cls,cellCls)}
+var rowC=function(i){return i===0?"r1":"r2"};
+/* steps 2 and 3: the multiplication worked out row by row, each row in its own colour */
+function rowsHTML(M,v){
+  var Av=mul(M,v),t=function(x){return fmt(x)};
+  return "<div class='rowcalc'>"+[0,1].map(function(i){
+    return "<span class='rk'>Row "+(i+1)+"</span><span><span class='"+rowC(i)+"'>"+t(M[i][0])+"</span> · <span class='vn'>"+t(v[0])+"</span> + <span class='"+rowC(i)+"'>"+t(M[i][1])+"</span> · <span class='vn'>"+t(v[1])+"</span> = <b class='"+rowC(i)+"'>"+t(Av[i])+"</b></span>"}).join("")+"</div>";
+}
+function eigList(names){var e=eig(A());return e.map(function(x,i){return "<p class='"+(i===0?"e1":"e2c")+"'><b>"+names[i]+":</b> direction ("+fmt(x.v[0])+", "+fmt(x.v[1])+"), λ = "+fmtL(x.l)+"</p>"}).join("")}
+function eigAngle(){var e=eig(A());if(e.length<2)return 0;var c=Math.abs(e[0].v[0]*e[1].v[0]+e[0].v[1]*e[1].v[1]);return Math.round(Math.acos(Math.min(1,c))*180/Math.PI)}
+var DIAG="the diagonal (the line from top left to bottom right)";
+function calcHTML(){
+  var M=A(),v=st.v,Av=mul(M,v),s0=st.step;
+  if(s0===0)return "<div class='eq'><span class='nm vb'>v =</span>"+col(v,"vb")+"</div>"+
+    "<div class='eq'><span class='nm'>length</span><span>√(4² + 2²) = √20 ≈ 4.47</span></div>";
+  var off=function(i,j){return i!==j?"co":""}, covC=function(i,j){return i===j?"cd":"co"};
+  var cells=(s0===4||s0===5||s0===6)?off:((s0>=7&&st.mat==='cov')?covC:((s0===FREE)?off:null));
+  var s="<div class='eq'><span class='nm'>A =</span>"+mx(M,"",cells)+"</div>";
+  if(s0===7){
+    s+="<div class='eq'><span class='nm'></span>"+mx([["var(BW)","cov(BW, BH)"],["cov(BW, BH)","var(BH)"]],"",covC)+"</div>";
+    return s+"<div class='box'><h3>What the cells mean</h3><p><span class='cd'>Top left and bottom right</span> (on "+DIAG+"): the variance of body weight (87.5) and of body height (50.7). How much each variable spreads on its own.</p><p><span class='co'>Top right and bottom left</span>: the covariance of BW and BH (58). How much the two move together: heavier persons tend to be taller. It appears twice with the same value, so the matrix is symmetric.</p></div>";
+  }
+  var hit=isEigen(v,Av),lam=(Av[0]*v[0]+Av[1]*v[1])/(v[0]*v[0]+v[1]*v[1]),cAv=hit?"vg":"vo";
+  if(s0===1||s0===2){
+    var r="<div class='eq'><span class='nm'>A =</span>"+mx(M,"",function(i){return rowC(i)})+"</div>";
+    r+="<div class='eq'><span class='nm vb'>v =</span>"+col(v,"vb")+"</div>";
+    if(s0===1)r+="<div class='box'><h3>How to multiply</h3><p>Take one row of A at a time. Multiply its first number by the first number of v, its second number by the second number of v, and add.</p>"+rowsHTML(M,v)+"<p>Each row gives one number of the new vector.</p></div>";
+    else r+=rowsHTML(M,v);
+    r+="<div class='eq'><span class='nm "+cAv+"'>A·v =</span>"+col(Av,cAv,function(i){return rowC(i)})+"</div>";
+    if(hit)r+="<div class='verdict vg'>(8, 4) = 4 · (2, 1)<br>→ same direction, 4 times longer: λ = 4</div>";
+    else r+="<div class='verdict'>(6, 2) is not a multiple of (1, 1)<br><span style='color:var(--muted);font-weight:400'>→ new direction, not an eigenvector</span></div>";
+    return r;
+  }
+  s+="<div class='eq'><span class='nm vb'>v =</span>"+col(v,"vb")+"</div>";
+  s+="<div class='eq"+(st.mat==='cov'?" tight":"")+"'><span class='nm "+cAv+"'>A·v =</span>"+mx(M)+col(v,"vb")+"<span>=</span>"+col(Av,cAv)+"</div>";
+  if(hit)s+="<div class='verdict vg'>A·v = λ · v with λ = "+fmtL(lam)+"<br>→ v is an eigenvector</div>";
+  else s+="<div class='verdict'>Angle between v and A·v: "+Math.round(between(v,Av))+"°<br><span style='color:var(--muted);font-weight:400'>→ not an eigenvector</span></div>";
+  if(s0===4)s+="<div class='box'><h3>Not symmetric</h3><p><span class='co'>Top right (4) and bottom left (2)</span> differ. The two eigenvectors meet at "+eigAngle()+"°, not at 90°.</p>"+eigList(["Eigenvector 1","Eigenvector 2"])+"</div>";
+  if(s0===5||s0===6)s+="<div class='box'><h3>Symmetric</h3><p><span class='co'>Top right and bottom left</span> are equal (2 = 2): the matrix is mirrored along "+DIAG+". Then the eigenvectors always meet at 90°.</p>"+eigList(["Eigenvector 1","Eigenvector 2"])+(s0===6?"<p>Axis length of the ellipse = |λ| × length of v.</p>":"")+"</div>";
+  if(s0===8)s+=covBox();
+  if(s0===FREE)s+=aboutHTML();
+  return s;
+}
+function covBox(){var M=A(),e=eig(M),tot=M[0][0]+M[1][1];
+  return "<div class='box'><h3>Covariance matrix and PCA</h3>"+eigList(["PC1","PC2"])+"<p>The eigenvectors are the principal components: the directions of the data cloud. λ is the variance along each of them.</p>"+(st.mat==='cov'?"<p>PC1 = "+fmt(e[0].v[0])+"·BW + "+fmt(e[0].v[1])+"·BH. These two numbers are the loadings α1 and α2. The trial combination 0.8 / 0.6 had variance 129.9: PCA finds the best combination directly.</p>":"")+"<p>Total variance: <span class='cd'>"+fmt(M[0][0])+" + "+fmt(M[1][1])+"</span> = "+fmt(tot)+" = λ1 + λ2. <span class='e1'>PC1</span> holds "+Math.round(e[0].l/tot*100)+" % of it.</p></div>"}
+function aboutHTML(){
+  if(st.mat==='slide')return "<div class='box'><h3>Example matrix: not symmetric</h3><p><span class='co'>Top right (4) and bottom left (2)</span> differ. Eigenvectors meet at "+eigAngle()+"°.</p>"+eigList(["Eigenvector 1","Eigenvector 2"])+"</div>";
+  if(st.mat==='sym')return "<div class='box'><h3>Symmetric matrix</h3><p><span class='co'>Top right = bottom left</span>: mirrored along "+DIAG+". Eigenvectors meet at 90°.</p>"+eigList(["Eigenvector 1","Eigenvector 2"])+"</div>";
+  return covBox();
+}
+
+function say(){
+  var M=A(),v=st.v,Av=mul(M,v),hit=isEigen(v,Av),lam=(Av[0]*v[0]+Av[1]*v[1])/(v[0]*v[0]+v[1]*v[1]);
+  switch(st.step){
+    case 0:return "A vector is an arrow from the origin: v = (4, 2) means 4 to the right and 2 up. Its length follows from Pythagoras: √20 ≈ 4.47.";
+    case 1:return "A matrix is a table of numbers, here 2 rows and 2 columns. Multiplying A by v = (1, 1) gives a new vector A·v = (6, 2) (see Calculation). It points in a different direction. An eigenvector would only get longer or shorter, never turn. So (1, 1) is not an eigenvector of A.";
+    case 2:return "Now v = (2, 1): A·v = (8, 4) = 4 · (2, 1). Same direction, only 4 times longer. So (2, 1) is an eigenvector of A, and its eigenvalue is λ = 4, the stretch factor.";
+    case 3:
+      if(hit)return "Eigenvector found: A·v lies on the line of v (green). Stretch factor λ = "+fmtL(lam)+"."+(lam<0?" A negative λ means A·v points the opposite way.":"")+" Keep turning: the other line has a different λ, the opposite direction of this one gives the same λ.";
+      return "Turn v (drag the arrow tip or use the slider) until A·v lies on the same line as v. This matrix has two such lines. On each line, v works in both directions, and any longer or shorter v as well: the eigenvalue stays the same.";
+    case 4:return "Both eigenvector lines of this matrix (dashed): λ = 4 and λ = −2. They meet at "+eigAngle()+"°, not at a right angle. The reason: the matrix is not symmetric.";
+    case 5:return "A symmetric matrix: top right and bottom left are equal, the matrix is mirrored along the diagonal. Its two eigenvectors now meet at exactly 90°. This holds for every symmetric matrix.";
+    case 6:return "v turns once around (dashed circle). A·v draws an ellipse. The eigenvectors are the axes of this ellipse: along them A only stretches, it does not turn."+(PCA?"":" Remember this ellipse: it comes back later, when we look at clouds of data points.");
+    case 7:return (PCA?"Reminder: an eigenvector is a direction that a matrix only stretches, it does not turn it. The stretch factor is the eigenvalue λ (steps 1 to 7). ":"")+"Now a covariance matrix, calculated from data: body weight (BW) and body height (BH) of 6 persons, both centered (dots). It is symmetric, and each cell has a meaning (see right).";
+    case 8:return "The eigenvectors of the covariance matrix point along the data cloud and across it: they are the principal components PC1 and PC2. The eigenvalues are the variances along them. This is exactly what PCA calculates.";
+    default:return "Free mode: switch the matrix, turn v, show the eigenvectors, turn v once around.";
+  }
+}
+
+function render(){
+  var free=st.step>=3;
+  $("freeRow").hidden=!free;
+  $("mSlide").parentNode.style.display=st.step===FREE?"flex":"none";
+  $("find").style.display=(st.step===3||st.step===FREE)?"":"none";
+  $("ang").parentNode.style.display=st.step===7?"none":"";
+  ["slide","sym","cov"].forEach(function(k,i){$(["mSlide","mSym","mCov"][i]).setAttribute("aria-pressed",st.mat===k?"true":"false")});
+  $("sweep").style.display=(st.step===6||st.step===8||st.step===FREE)?"":"none";
+  $("find").setAttribute("aria-pressed",st.showEig?"true":"false");$("find").textContent=st.showEig?"Hide eigenvectors":"Show eigenvectors";
+  var a=angDeg(st.v);$("ang").value=a;$("angOut").textContent=Math.round(a)+"°";
+  $("say").textContent=say().replace(/\((−?[\d.]+), (−?[\d.]+)\)/g,"($1,\u00a0$2)").replace(/ = \(/g,"\u00a0=\u00a0(");$("calc").innerHTML=calcHTML();
+  var hit=st.step>=1&&isEigen(st.v,mul(A(),st.v));$("status").classList.toggle("hit",hit&&st.step!==1&&st.step!==7);
+  $("cTitle").textContent=st.step===0?"A vector":(st.step===7?"Data: 6 persons, body weight and height (centered)":"Vector v (blue) and A·v (orange, green when parallel)");
+  $("cSub").textContent=(st.step>=3&&st.step!==7)?(st.mat==='cov'?"Drag the tip of v to turn it. v has length 1. A·v is up to 130 times longer, so it is drawn 50 times shorter.":"Drag the tip of v to turn it. Its length stays the same."):"";
+  $("stepno").textContent="Step "+(st.step+1)+" of "+(LAST+1);
+  $("back").disabled=st.step===0;$("next").disabled=st.step===LAST;
+  draw();
+}
+function setDir(deg){setView();var r=deg*Math.PI/180;st.v=[VLEN*Math.cos(r),VLEN*Math.sin(r)];
+  /* snap onto an eigen direction when close, so the hit is easy to find */
+  eig(A()).forEach(function(e){[1,-1].forEach(function(s){var d=angDeg([s*e.v[0],s*e.v[1]]),diff=Math.abs(((deg-d)%360+540)%360-180);if(diff<1.2)st.v=[s*e.v[0]*VLEN,s*e.v[1]*VLEN]})})}
+function stopAnim(){if(st.anim){cancelAnimationFrame(st.anim);st.anim=null}}
+function go(k){stopAnim();st.step=Math.max(0,Math.min(LAST,k));st.trace=[];
+  if(st.step===0)st.v=[4,2];
+  if(st.step===1){st.mat='slide';st.v=[1,1]}
+  if(st.step===2){st.mat='slide';st.v=[2,1]}
+  if(st.step===3){st.mat='slide';st.showEig=false;setDir(60)}
+  if(st.step===4){st.mat='slide';st.showEig=true;setDir(angDeg([2,1]))}
+  if(st.step===5){st.mat='sym';st.showEig=true;setDir(45)}
+  if(st.step===6){st.mat='sym';st.showEig=true;setDir(20)}
+  if(st.step===7){st.mat='cov';st.showEig=false}
+  if(st.step===8){st.mat='cov';st.showEig=true;setDir(20)}
+  if(st.step===FREE){st.showEig=true;setDir(20)}
+  render();
+  if(st.step===6||st.step===8)sweep();
+}
+
+function sweep(){
+  stopAnim();st.trace=[];var t0=null,start=angDeg(st.v),dur=6000;
+  function tick(now){if(t0===null)t0=now;var t=Math.min(1,(now-t0)/dur);var d=start+360*t,r=d*Math.PI/180;
+    st.v=[VLEN*Math.cos(r),VLEN*Math.sin(r)];st.trace.push(mul(A(),st.v));render();st.anim=t<1?requestAnimationFrame(tick):null}
+  st.anim=requestAnimationFrame(tick);
+}
+
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){st.mat='slide';st.showEig=false;go(START)});
+$("ang").addEventListener("input",function(e){stopAnim();st.trace=[];setDir(+e.target.value);render()});
+$("find").addEventListener("click",function(){st.showEig=!st.showEig;render()});
+$("sweep").addEventListener("click",sweep);
+[["mSlide","slide"],["mSym","sym"],["mCov","cov"]].forEach(function(p){$(p[0]).addEventListener("click",function(){stopAnim();st.mat=p[1];st.trace=[];setDir(angDeg(st.v));render()})});
+document.addEventListener("keydown",function(e){
+  if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}
+  else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}
+});
+$("full").addEventListener("click",function(){
+  try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}
+});
+/* drag the tip of v */
+var cv=$("cv"),drag=false;
+function pt(e){var r=cv.getBoundingClientRect();return [(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]}
+function fromEvent(e){setView();var p=pt(e),x=(p[0]-W/2)*R/(W/2-PD),y=(H/2-p[1])*R/(H/2-PD);if(Math.hypot(x,y)<0.3)return;st.trace=[];setDir(angDeg([x,y]));render()}
+cv.addEventListener("pointerdown",function(e){if(st.step<3)return;stopAnim();drag=true;try{cv.setPointerCapture(e.pointerId)}catch(err){}fromEvent(e)});
+cv.addEventListener("pointermove",function(e){if(drag)fromEvent(e)});
+cv.addEventListener("pointerup",function(){drag=false});cv.addEventListener("pointercancel",function(){drag=false});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+go(START);
+})();
+</script>
+</body>
+</html>

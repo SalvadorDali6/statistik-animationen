@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overfitting: training, validation and test</title>
+<style>
+/* A10 v1: overfitting, degrees of freedom as a bank account, training / validation / test,
+   model complexity (polynomial degree 1-12), U-shaped validation error, test data in the vault,
+   5-fold cross-validation (slides 118-128). 50 simulated points, fixed (true curve 2 + 1.6 sin(0.55x) + 0.12x, noise 0.55).
+   Split 30 / 10 / 10. Link with ?step=N (1-9). Accent = FH #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent2:#CB6413; --accent-soft:rgba(246,164,32,.22);
+  --train:#F6A420; --val:#1f5fb4; --test:#6b737c; --cv:#7a3e9d;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046; --val:#6aa2e6; --test:#9aa3ad; --cv:#c39bd3;}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1180px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto minmax(220px,1fr);gap:12px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button:disabled{opacity:.45;cursor:default}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.ctl[hidden],.folds[hidden]{display:none}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+.ctl .ends{display:flex;justify-content:space-between;color:var(--muted);font-size:.85rem}
+input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:4px 0 0}
+.stepno{color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+.folds{grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.folds>span{font-weight:600;color:var(--muted)}
+.fold{display:inline-grid;grid-template-rows:repeat(5,22px);gap:3px;vertical-align:middle;margin-right:4px}
+.fold i{display:block;width:30px;border:1px solid var(--muted);border-radius:4px;font-style:normal;font-size:.75rem;font-weight:700;text-align:center;line-height:20px}
+.fold i.v{background:var(--accent);color:#1f2328;border-color:var(--accent2)}
+.fold.on i{border-width:2px}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:104px}
+.status p{margin:0;font-size:1.12rem;max-width:68ch}
+.status strong{font-weight:750}
+.status .cl{display:block;margin-top:8px;font-style:italic;color:var(--muted)}
+.nums{display:flex;gap:22px;flex-wrap:wrap}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.8rem;white-space:nowrap}
+.nums .v{font-size:1.4rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.nums [hidden]{display:none}
+.tr{color:var(--accent2)} .va{color:var(--val)} .te{color:var(--test)} .cvc{color:var(--cv)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid.one{grid-template-columns:minmax(0,680px);justify-content:center}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0}
+.card[hidden]{display:none}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 2px}
+.card p.note{margin:2px 0 8px;color:var(--muted);font-size:.92rem}
+canvas{display:block;width:100%;height:auto;aspect-ratio:600/470}
+/* df account */
+.acct{display:flex;gap:8px;align-items:stretch;margin:4px 0 10px;flex-wrap:wrap}
+.pot{flex:1 1 auto;min-width:0}
+.pot .lab{font-size:.8rem;font-weight:650;color:var(--muted);margin-bottom:2px;white-space:nowrap}
+.pot .b{display:flex;height:30px;border-radius:6px;overflow:hidden;border:1px solid var(--line);font-size:.8rem;font-weight:700;font-variant-numeric:tabular-nums}
+.pot .b span{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;transition:flex-grow .3s}
+.sp{background:var(--accent);color:#1f2328} .lf{background:var(--line);color:var(--ink)}
+.pv{background:var(--val);color:#fff} .pt{background:repeating-linear-gradient(45deg,var(--test),var(--test) 6px,#8b939b 6px,#8b939b 12px);color:#fff}
+.pt.open{background:var(--test)}
+@media (max-width:860px){.grid,.bar,.status{grid-template-columns:1fr}.nums{justify-content:flex-start}.nums div{text-align:left}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Overfitting: training, validation and test</h1>
+    <p class="sub">A model that fits too well can predict badly.</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="ctl" id="degBox" hidden>
+    <label for="deg">Model complexity (polynomial degree) <output id="degOut"></output></label>
+    <input id="deg" type="range" min="1" max="12" step="1" value="1">
+    <div class="ends"><span>simple (straight line)</span><span>very flexible</span></div>
+  </div>
+  <div class="folds" id="foldBox" hidden>
+    <span>5-fold cross-validation:</span>
+    <span id="foldIcons"></span>
+    <button id="play" type="button">Play</button>
+    <button id="avg" type="button">Average</button>
+  </div>
+</div>
+
+<div class="status">
+  <p id="say"></p>
+  <div class="nums">
+    <div id="nD"><div class="k">Degree (df spent)</div><div class="v" id="vD">–</div></div>
+    <div id="nT"><div class="k tr">Training error</div><div class="v" id="vT">–</div></div>
+    <div id="nV"><div class="k va">Validation error</div><div class="v" id="vV">–</div></div>
+    <div id="nX"><div class="k te">Test error</div><div class="v" id="vX">–</div></div>
+    <div id="nC"><div class="k cvc">Cross-validation error</div><div class="v" id="vC">–</div></div>
+  </div>
+</div>
+
+<div class="grid one" id="grid">
+  <div class="card">
+    <h2 id="title"></h2>
+    <div class="acct" id="acct"></div>
+    <canvas id="sc" width="600" height="470" aria-label="Data and model"></canvas>
+    <p class="note" id="note"></p>
+  </div>
+  <div class="card" id="eCard" hidden>
+    <h2>Error versus model complexity</h2>
+    <p class="note">Typical error (RMSE): how far the model is off, on average.</p>
+    <canvas id="ec" width="600" height="470" aria-label="Error versus complexity"></canvas>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var LAST=8,W=600,H=470,ANIM=700;
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+var U=1;function fs(n){return Math.round(n*U)}
+function setU(){U=Math.max(1,Math.min(1.6,560/Math.max(320,Math.min(window.innerWidth,900)-40)))}
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function f2(x){return x.toFixed(2)}
+
+/* ---------- data (fixed) ---------- */
+var DATA={"P":[[2.272,2.899],[8.46,1.292],[7.809,1.638],[5.637,2.185],[7.664,1.298],[0.934,2.339],[5.956,2.058],[4.808,3.058],[4.447,3.115],[0.625,3.261],[4.163,4.225],[4.795,3.845],[6.226,1.987],[3.338,3.828],[7.067,1.882],[0.62,2.479],[0.555,2.322],[1.075,3.447],[9.7,0.831],[1.555,3.909],[5.499,2.986],[4.318,3.465],[9.102,1.038],[7.599,2.099],[9.533,2.283],[0.687,3.243],[7.158,1.288],[7.8,1.914],[3.221,3.444],[1.093,2.93],[7.102,1.913],[5.583,2.452],[7.606,1.417],[6.679,2.07],[9.617,2.382],[6.733,2.384],[1.175,4.081],[2.909,4.456],[4.251,4.142],[1.386,3.073],[6.48,1.934],[0.902,1.961],[3.077,3.399],[7.678,1.264],[5.968,1.843],[8.631,1.586],[5.679,3.666],[4.049,3.651],[3.757,3.772],[7.291,1.051]],"tr":[8,31,1,34,0,42,49,40,14,37,5,24,27,13,6,11,10,23,26,30,44,18,25,15,9,7,21,48,35,2],"va":[4,28,12,33,43,46,41,17,16,45],"te":[3,39,36,32,47,20,19,22,29,38]};
+var P=DATA.P,TR=DATA.tr,VA=DATA.va,TE=DATA.te,PAIR=[10,17],POOL=TR.concat(VA);
+var FOLDS=[0,1,2,3,4].map(function(k){return POOL.filter(function(_,i){return i%5===k})});
+
+/* ---------- least squares polynomial (Chebyshev basis on x/5 - 1, Gram-Schmidt QR) ---------- */
+function basis(x,p){var t=x/5-1,b=[1,t];for(var q=2;q<p;q++)b.push(2*t*b[q-1]-b[q-2]);return b.slice(0,p)}
+function fit(I,deg){var n=I.length,p=deg+1,M=I.map(function(i){return basis(P[i][0],p)}),Y=I.map(function(i){return P[i][1]}),Q=[],R=[],i,j,k;
+  for(j=0;j<p;j++){var v=M.map(function(r){return r[j]});R.push(new Array(p).fill(0));
+    for(k=0;k<j;k++){var d=0;for(i=0;i<n;i++)d+=Q[k][i]*v[i];R[k][j]=d;for(i=0;i<n;i++)v[i]-=d*Q[k][i]}
+    var nr=Math.sqrt(v.reduce(function(a,b){return a+b*b},0));R[j][j]=nr;Q.push(v.map(function(a){return a/nr}))}
+  var qy=Q.map(function(q){return q.reduce(function(a,b,i){return a+b*Y[i]},0)}),c=new Array(p).fill(0);
+  for(j=p-1;j>=0;j--){var s=qy[j];for(k=j+1;k<p;k++)s-=R[j][k]*c[k];c[j]=s/R[j][j]}
+  return function(x){var b=basis(x,p),r=0;for(var q=0;q<p;q++)r+=b[q]*c[q];return r}}
+function rmse(f,I){return Math.sqrt(I.reduce(function(a,i){var e=f(P[i][0])-P[i][1];return a+e*e},0)/I.length)}
+function line2(){var a=P[PAIR[0]],b=P[PAIR[1]],m=(b[1]-a[1])/(b[0]-a[0]);return function(x){return a[1]+m*(x-a[0])}}
+var ERR=[];for(var d=1;d<=12;d++){var f=fit(TR,d);ERR.push({tr:rmse(f,TR),va:rmse(f,VA),te:rmse(f,TE)})}
+var CV=[];for(d=1;d<=12;d++){var s=0;FOLDS.forEach(function(F){var T=POOL.filter(function(i){return F.indexOf(i)<0});s+=rmse(fit(T,d),F)});CV.push(s/5)}
+function argmin(a){var b=0;a.forEach(function(v,i){if(v<a[b])b=i});return b+1}
+var BEST=argmin(ERR.map(function(e){return e.va})),BESTCV=argmin(CV);
+
+/* ---------- state ---------- */
+var st={step:0,deg:1,fold:-1,anim:null,play:null};
+var STEPDEG={4:1,5:1,6:BEST,7:BEST,8:BEST};
+
+/* ---------- helpers ---------- */
+function label(g,txt,x,y,col,size,weight,align,base){g.font=(weight||"600")+" "+fs(size||18)+"px "+FONT;g.textAlign=align||"left";g.textBaseline=base||"alphabetic";
+  g.lineJoin="round";g.lineWidth=6;g.strokeStyle=css("--panel");g.strokeText(txt,x,y);g.fillStyle=col;g.fillText(txt,x,y)}
+function frame(){var L=Math.round(26+fs(18)*1.6),B=H-Math.round(28+fs(16)*2.2);return {L:L,R:W-16,T:16,B:B}}
+function X(v,F){return F.L+v/10*(F.R-F.L)} function Y(v,F){return F.B-v/6*(F.B-F.T)}
+
+/* ---------- scatter ---------- */
+function drawScatter(t){
+  setU();var c=$("sc"),g=c.getContext("2d"),F=frame(),s=st.step;if(t===undefined)t=1;
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),trc=css("--train"),vac=css("--val"),tec=css("--test"),acc2=css("--accent2"),panel=css("--panel");
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();for(var k=0;k<=10;k+=2){g.moveTo(X(k,F),F.T);g.lineTo(X(k,F),F.B)}for(k=0;k<=6;k++){g.moveTo(F.L,Y(k,F));g.lineTo(F.R,Y(k,F))}g.stroke();
+  g.strokeStyle=muted;g.lineWidth=2;g.strokeRect(F.L,F.T,F.R-F.L,F.B-F.T);
+  g.font=fs(15)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";for(k=0;k<=10;k+=2)g.fillText(String(k),X(k,F),F.B+6);
+  g.textAlign="right";g.textBaseline="middle";for(k=0;k<=6;k++)g.fillText(String(k),F.L-6,Y(k,F));
+  label(g,"x",(F.L+F.R)/2,F.B+14+fs(15)+fs(10),ink,18,"700","center","middle");label(g,"y",F.L-20-fs(10),(F.T+F.B)/2,ink,18,"700","center","middle");
+  /* which points, which colour */
+  function role(i){
+    if(s<=3)return "all";
+    if(s===8){if(TE.indexOf(i)>=0)return "test";if(st.fold>=0&&FOLDS[st.fold].indexOf(i)>=0)return "val";return st.fold>=0?"train":"pool"}
+    if(TR.indexOf(i)>=0)return "train";if(VA.indexOf(i)>=0)return "val";return "test"}
+  /* model curve */
+  var f=null,curveCol=acc2;
+  if(s===1)f=fit(P.map(function(_,i){return i}),1);
+  else if(s===2||s===3)f=line2();
+  else if(s>=4&&s<=7)f=fit(TR,st.deg);
+  else if(s===8&&st.fold>=0)f=fit(POOL.filter(function(i){return FOLDS[st.fold].indexOf(i)<0}),st.deg);
+  else if(s===8)f=fit(POOL,st.deg);
+  /* residuals of the validation points */
+  if(f&&(s>=4&&s<=7)){g.strokeStyle=vac;g.globalAlpha=0.5;g.lineWidth=1.5;g.setLineDash([3,3]);VA.forEach(function(i){var yy=f(P[i][0]);g.beginPath();g.moveTo(X(P[i][0],F),Y(P[i][1],F));g.lineTo(X(P[i][0],F),Y(Math.max(-1,Math.min(7,yy)),F));g.stroke()});g.setLineDash([]);g.globalAlpha=1}
+  if(f){g.save();g.beginPath();g.rect(F.L,F.T,F.R-F.L,F.B-F.T);g.clip();g.beginPath();for(var x=0;x<=10.0001;x+=0.02){var yv=Math.max(-50,Math.min(50,f(x)));if(x)g.lineTo(X(x,F),Y(yv,F));else g.moveTo(X(x,F),Y(yv,F))}
+    g.strokeStyle=curveCol;g.lineWidth=4;g.globalAlpha=(s===3?1:1);g.stroke();g.restore()}
+  /* points */
+  P.forEach(function(p,i){var r=role(i),px=X(p[0],F),py=Y(p[1],F),R=7*Math.min(U,1.3);
+    if(s===2&&PAIR.indexOf(i)<0)return;
+    var a=(s===3&&PAIR.indexOf(i)<0)?t:1;g.globalAlpha=a;
+    if(r==="all"){g.beginPath();g.arc(px,py,R,0,2*Math.PI);g.fillStyle=(s>=2&&PAIR.indexOf(i)>=0)?acc2:ink;g.fill()}
+    else if(r==="train"||r==="pool"){g.beginPath();g.arc(px,py,R,0,2*Math.PI);g.fillStyle=r==="pool"?muted:trc;g.fill();g.lineWidth=1.5;g.strokeStyle=panel;g.stroke()}
+    else if(r==="val"){g.fillStyle=vac;g.fillRect(px-R,py-R,2*R,2*R)}
+    else{var open=s===7;g.beginPath();g.moveTo(px,py-R*1.2);g.lineTo(px+R*1.1,py+R*0.8);g.lineTo(px-R*1.1,py+R*0.8);g.closePath();
+      if(open){g.fillStyle=tec;g.fill()}else{g.setLineDash([3,3]);g.lineWidth=2;g.strokeStyle=tec;g.stroke();g.setLineDash([])}}
+    g.globalAlpha=1});
+  if(s===2){label(g,"perfect fit: 0 df left over",X(5,F),F.T+26,acc2,18,"700","center","middle")}
+  if(s===3&&t>0.9){label(g,"the “perfect” line misses the rest",X(5,F),F.T+26,acc2,18,"700","center","middle")}
+}
+
+/* ---------- error chart ---------- */
+var YMAX=1.6;
+function drawErr(maxDeg){
+  setU();var c=$("ec"),g=c.getContext("2d"),s=st.step;var ink=css("--ink"),muted=css("--muted"),line=css("--line"),trc=css("--accent2"),vac=css("--val"),tec=css("--test"),cvc=css("--cv"),panel=css("--panel"),acc=css("--accent");
+  var L=Math.round(30+fs(16)*2.4),R=W-20,T=20,B=H-Math.round(30+fs(16)*2.4);
+  function xx(d){return L+(d-1)/11*(R-L)} function yy(v){return B-Math.min(v,YMAX)/YMAX*(B-T)}
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();for(var d=1;d<=12;d++){g.moveTo(xx(d),T);g.lineTo(xx(d),B)}for(var v=0;v<=YMAX+1e-9;v+=0.4){g.moveTo(L,yy(v));g.lineTo(R,yy(v))}g.stroke();
+  g.strokeStyle=ink;g.lineWidth=2;g.strokeRect(L,T,R-L,B-T);
+  g.font=fs(15)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";for(d=1;d<=12;d++)g.fillText(String(d),xx(d),B+6);
+  g.textAlign="right";g.textBaseline="middle";for(v=0;v<=YMAX+1e-9;v+=0.4)g.fillText(v.toFixed(1),L-6,yy(v));
+  label(g,"model complexity (degree)",(L+R)/2,B+16+fs(15)+fs(8),ink,17,"600","center","middle");
+  g.save();g.translate(12+fs(8),(T+B)/2);g.rotate(-Math.PI/2);label(g,"typical error (RMSE)",0,0,ink,17,"600","center","middle");g.restore();
+  var md=maxDeg||12;
+  function curve(vals,col,dash,w){g.beginPath();for(var d=1;d<=md;d++){var X_=xx(d),Y_=yy(vals[d-1]);if(d>1)g.lineTo(X_,Y_);else g.moveTo(X_,Y_)}g.strokeStyle=col;g.lineWidth=w||4;g.setLineDash(dash||[]);g.lineJoin="round";g.stroke();g.setLineDash([]);
+    var last=-1;for(d=1;d<=md;d++){g.beginPath();g.arc(xx(d),yy(vals[d-1]),4,0,2*Math.PI);g.fillStyle=col;g.fill();if(vals[d-1]>YMAX)last=d}
+    if(last>0)label(g,"↑ "+f2(vals[last-1])+" (off the chart)",xx(last)-8,yy(YMAX)+16,col,14,"700","right","middle")}
+  /* current degree */
+  g.strokeStyle=acc;g.lineWidth=3;g.beginPath();g.moveTo(xx(st.deg),T);g.lineTo(xx(st.deg),B);g.stroke();
+  curve(ERR.map(function(e){return e.tr}),trc);curve(ERR.map(function(e){return e.va}),vac);
+  if(s===7)curve(ERR.map(function(e){return e.te}),tec,[8,6],3);
+  if(s===8)curve(CV,cvc,[8,6],3);
+  /* line labels at the right */
+  var ly=function(v){return yy(v)};
+  label(g,"training",xx(md)-6,ly(ERR[md-1].tr)+18,trc,16,"700","right","middle");
+  label(g,"validation",xx(md)-6,ly(Math.min(ERR[md-1].va,YMAX))-16,vac,16,"700","right","middle");
+  if(s===7)label(g,"test",xx(9)+4,ly(Math.min(ERR[8].te,YMAX))-16,tec,16,"700","left","middle");
+  if(s===8)label(g,"cross-validation",xx(7),ly(CV[6])-18,cvc,16,"700","center","middle");
+  /* best */
+  if(s>=6){var bd=s===8?BESTCV:BEST,bv=s===8?CV[bd-1]:ERR[bd-1].va,bc=s===8?cvc:vac;g.beginPath();g.arc(xx(bd),yy(bv),10,0,2*Math.PI);g.lineWidth=3;g.strokeStyle=bc;g.stroke();
+    label(g,"lowest",xx(bd),yy(bv)+26,bc,15,"700","center","middle")}
+  if(s>=5){label(g,"← underfitting",L+8,B-14,muted,15,"700","left","middle");label(g,"overfitting →",R-8,B-14,muted,15,"700","right","middle")}
+}
+
+/* ---------- account ---------- */
+function account(){
+  var s=st.step,h="";
+  function pot(lab,parts){return '<div class="pot" style="flex-grow:'+parts.reduce(function(a,p){return a+p[0]},0)+'"><div class="lab">'+lab+'</div><div class="b">'+parts.map(function(p){return p[0]>0?'<span class="'+p[1]+'" style="flex-grow:'+p[0]+'">'+p[2]+'</span>':""}).join("")+'</div></div>'}
+  if(s===0)return pot("df account: 50 points = 50 df",[[50,"lf","50 df"]]);
+  if(s===1||s===3&&false)return pot("df account: 50 df",[[2,"sp","2"],[48,"lf","48 left over to check"]]);
+  if(s===2)return pot("df account: only 2 points = 2 df",[[2,"sp","2 spent"],[0.001,"lf",""]])+'<div class="pot" style="flex-grow:48"><div class="lab">&nbsp;</div><div class="b" style="border:none;color:var(--accent2);align-items:center">0 df left over</div></div>';
+  if(s===3)return pot("df account: the 2 points again",[[2,"sp","2 spent"]])+'<div class="pot" style="flex-grow:48"><div class="lab">&nbsp;</div><div class="b" style="border:none;color:var(--muted);align-items:center">+ 48 new points</div></div>';
+  var p=st.deg+1;
+  if(s===8)return pot("training + validation: 40 points, in 5 blocks",[[40,"sp","each block is validation once"]])+pot("test",[[10,"pt open".replace(" open",""),"10 (locked)"]]);
+  return pot("training: 30 df",[[p,"sp",p+" spent"],[30-p,"lf",(30-p)+" left"]])+pot("validation",[[10,"pv","10"]])+pot("test",[[10,"pt"+(s===7?" open":""),s===7?"10 (opened)":"10 (locked)"]]);
+}
+
+/* ---------- texts ---------- */
+var TITLES=["50 measured points","Degrees of freedom: a bank account","Only 2 points: a perfect fit","The other 48 points","Three pots: training, validation, test",
+  "More flexible models","The best model: lowest validation error","Open the vault: the test data","Cross-validation"];
+function say(){
+  var s=st.step,e=ERR[st.deg-1];
+  switch(s){
+    case 0:return "Can a model be too good? Here are 50 measured points (x and y). The more flexible a curve is, the better it can follow these points. But does it still predict new points? Press Next.";
+    case 1:return "Think of the data as a bank account: 50 points = 50 degrees of freedom (df). Every parameter of a model costs 1 df. A straight line (intercept and slope) costs 2 df, so 48 df are left over to check the model.";
+    case 2:return "Now imagine we had measured only 2 points. A straight line goes exactly through both: a perfect fit. But the account is empty, 0 df are left over. There is nothing left to check whether the line is any good.";
+    case 3:return "Here are the other 48 points. The “perfect” line misses most of them: it fitted the 2 points only by chance. **A perfect fit on the data you trained with proves nothing.**";
+    case 4:return "So before we start, we split the account into three pots: 30 points to train the model (orange), 10 points to validate it (blue squares) and 10 points for the final test (grey), locked in the vault. The straight line is fitted to the training points only. Typical error: training "+f2(e.tr)+", validation "+f2(e.va)+".";
+    case 5:return "Make the model more flexible with the slider (a polynomial of higher degree, each degree costs 1 df more). The training error keeps falling, the curve follows every point. The validation error first falls, then rises again: the model starts to learn the noise. **This is overfitting.** Now: degree "+st.deg+", training "+f2(e.tr)+", validation "+f2(e.va)+".";
+    case 6:return "Choose the model with the lowest validation error: degree "+BEST+" (validation error "+f2(ERR[BEST-1].va)+"). Simpler models miss the shape of the data (underfitting), more flexible ones learn the noise (overfitting). Because we used the validation data to choose, they are no longer completely new.";
+    case 7:var b=ERR[BEST-1];
+      return "Now, and only now, open the vault: the test data were never used. Test error of degree "+BEST+": "+f2(b.te)+", close to its validation error, so the model holds. Had we chosen by the training error (degree 12), the test error would be "+f2(ERR[11].te)+". **Use the test data only once, at the very end.**"+(st.deg!==BEST?" Now: degree "+st.deg+", test error "+f2(e.te)+".":"");
+    case 8:return "With few data, 10 validation points are a shaky basis. Cross-validation (5-fold): the 40 points outside the vault are split into 5 blocks. Each block is the validation block once, the other 4 train the model, and the 5 errors are averaged. So all 40 points are used for training and for validation, and the choice is more stable: lowest at degree "+BESTCV+" ("+f2(CV[BESTCV-1])+"). Press Play to run through the folds.||In the Classification Learner: when you start a session, choose Cross-Validation (number of folds) or Holdout Validation, and set aside test data that are evaluated only at the end.";
+  }
+}
+function paint(t){t=t.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");var p=t.split("||");return p[0]+(p[1]?'<span class="cl">'+p[1]+'</span>':"")}
+function note(){var s=st.step;
+  if(s<=3)return "";
+  if(s===8)return st.fold>=0?"Fold "+(st.fold+1)+" of 5: blue squares = validation block, orange = training. Grey triangles: test data, still locked.":"Grey dots: the 40 points outside the vault. Curve: the model on all 40 points. Grey triangles: test data.";
+  return "Orange: training points. Blue squares: validation points, dashed: their errors. Grey triangles: test data"+(s===7?" (now opened).":" (locked).");
+}
+
+/* ---------- render ---------- */
+function render(t){
+  var s=st.step;
+  $("title").textContent=TITLES[s];$("say").innerHTML=paint(say());$("note").textContent=note();$("acct").innerHTML=account();
+  $("stepno").textContent="Step "+(s+1)+" of "+(LAST+1);$("back").disabled=s===0;$("next").disabled=s===LAST;
+  $("degBox").hidden=s<5;$("deg").value=st.deg;$("degOut").textContent=st.deg+" ("+(st.deg+1)+" df)";
+  $("foldBox").hidden=s!==8;
+  if(s===8){var ic="";for(var k=0;k<5;k++){ic+='<span class="fold'+(st.fold===k?" on":"")+'" title="Fold '+(k+1)+'">';for(var b=0;b<5;b++)ic+='<i class="'+(b===k?"v":"")+'">'+(b===k?"V":"T")+'</i>';ic+="</span>"}$("foldIcons").innerHTML=ic;
+    $("avg").setAttribute("aria-pressed",st.fold<0?"true":"false")}
+  var e=ERR[st.deg-1];
+  $("nD").hidden=s<4;$("vD").textContent=st.deg+" ("+(st.deg+1)+")";
+  $("nT").hidden=s<4||(s===8&&st.fold<0);$("vT").textContent=f2(s===8&&st.fold>=0?rmse(fit(POOL.filter(function(i){return FOLDS[st.fold].indexOf(i)<0}),st.deg),POOL.filter(function(i){return FOLDS[st.fold].indexOf(i)<0})):e.tr);
+  $("nV").hidden=s<4||(s===8&&st.fold<0);$("vV").textContent=f2(s===8&&st.fold>=0?rmse(fit(POOL.filter(function(i){return FOLDS[st.fold].indexOf(i)<0}),st.deg),FOLDS[st.fold]):e.va);
+  $("nX").hidden=s!==7;$("vX").textContent=f2(e.te);
+  $("nC").hidden=s!==8;$("vC").textContent=f2(CV[st.deg-1]);
+  var showE=s>=5;$("eCard").hidden=!showE;$("grid").className=showE?"grid":"grid one";
+  drawScatter(t);if(showE)drawErr(st.sweep?st.deg:undefined);
+}
+function stopAll(){if(st.anim){cancelAnimationFrame(st.anim);st.anim=null}if(st.play){clearTimeout(st.play);st.play=null}st.sweep=false}
+function fade(){var t0=null;function tick(now){if(t0===null)t0=now;var t=Math.min(1,(now-t0)/ANIM);drawScatter(t);st.anim=t<1?requestAnimationFrame(tick):null}st.anim=requestAnimationFrame(tick)}
+function climb(){/* step 6: the degree climbs from 1 to 12 */
+  st.sweep=true;st.deg=1;render();var k=1;function next(){k++;if(k>12){st.sweep=false;st.play=null;render();return}st.deg=k;render();st.play=setTimeout(next,380)}st.play=setTimeout(next,500)}
+function go(n,anim){
+  stopAll();n=Math.max(0,Math.min(LAST,n));var old=st.step;st.step=n;st.fold=-1;
+  if(STEPDEG[n]!==undefined&&!(n===5&&old!==4&&!anim))st.deg=STEPDEG[n];
+  if(n===5&&anim&&old===4){climb();return}
+  render(anim&&n===3&&old===2?0:1);
+  if(anim&&n===3&&old===2)fade();
+}
+function playFolds(){stopAll();var k=0;function step(){st.fold=k;render();k++;st.play=setTimeout(k<5?step:function(){st.fold=-1;st.play=null;render()},1300)}step()}
+
+/* ---------- input ---------- */
+$("deg").addEventListener("input",function(e){stopAll();st.deg=+e.target.value;render()});
+$("play").addEventListener("click",playFolds);
+$("avg").addEventListener("click",function(){stopAll();st.fold=-1;render()});
+$("foldIcons").addEventListener("click",function(e){var el=e.target.closest(".fold");if(!el)return;stopAll();st.fold=Array.prototype.indexOf.call($("foldIcons").children,el);render()});
+$("next").addEventListener("click",function(){go(st.step+1,true)});
+$("back").addEventListener("click",function(){go(st.step-1,false)});
+$("reset").addEventListener("click",function(){go(0,false)});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){if(st.step<LAST)go(st.step+1,true);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1,false);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+var lastW=window.innerWidth;window.addEventListener("resize",function(){if(window.innerWidth===lastW)return;lastW=window.innerWidth;render()});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",function(){render()});
+var m=(location.search+location.hash).match(/step=(\d+)/);go(m?Math.max(1,Math.min(LAST+1,+m[1]))-1:0,false);
+})();
+</script>
+</body>
+</html>

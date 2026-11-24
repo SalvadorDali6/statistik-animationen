@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Euclidean vs. Mahalanobis distance</title>
+<style>
+/* A1 v4: Euclidean vs. Mahalanobis distance, told like slides 83-85.
+   v4: free mode names A and/or B when outside the ellipse.
+   v3: free mode switches the ellipse between 95 % (MD 2.45) and 99.9 % (MD 3.72), as on slide 85.
+   Cloud with centroid -> two new samples (red along, green across the cloud) at the same
+   Euclidean distance -> Mahalanobis distance tells them apart -> 95 % ellipse from the chi²
+   table (MD = sqrt(5.991) = 2.45) marks outliers -> free mode.
+   Colours: red/green/blue as on slide 84, ellipse in FH accent #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent-soft:rgba(246,164,32,.20); --cloud:#7d8691;
+  --red:#c0392b; --green:#2e8b57; --blue:#2f6db5;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046; --cloud:#8a939d;
+    --red:#ef7b6e; --green:#6fcf97; --blue:#6aa2e6;}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1100px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.q{font-size:1.2rem;font-weight:600;margin:4px 0 12px;max-width:60ch}
+.bar{display:flex;flex-direction:column;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.row{display:flex;gap:10px 22px;flex-wrap:wrap;align-items:center}
+.row[hidden]{display:none}
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lbl{font-weight:600;color:var(--muted)}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.9rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.ctl{flex:1 1 240px}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:4px 0 0}
+.status{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:96px}
+.status p{margin:0;font-size:1.12rem;max-width:66ch}
+.grid{display:grid;grid-template-columns:minmax(0,680px) minmax(240px,1fr);gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 8px}
+.card p.hint{margin:2px 0 8px;color:var(--muted);font-size:.92rem}
+canvas{display:block;width:100%;height:auto;aspect-ratio:1/1;touch-action:pan-y}
+canvas.free{touch-action:none}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:6px 6px;text-align:right;border-bottom:1px solid var(--line)}
+th{font-size:.85rem;color:var(--muted);font-weight:600}
+td{font-size:1.25rem;font-weight:650}
+th:first-child,td:first-child{text-align:left}
+td.nm{font-size:1rem;white-space:nowrap}
+.sw{display:inline-block;width:14px;height:14px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.big{font-size:1.5rem;font-weight:650;font-variant-numeric:tabular-nums;margin-top:14px}
+.small{color:var(--muted);font-size:.92rem}
+.key{margin-top:14px;font-size:.95rem;color:var(--muted)}
+.key div{margin:3px 0}
+.dash{display:inline-block;width:26px;height:0;border-top:3px dashed var(--accent);vertical-align:middle;margin-right:8px}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Euclidean vs. Mahalanobis distance</h1>
+    <p class="q">Two new samples are equally far from the centre of our data. Are they equally unusual?</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="row">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="row" id="freeRow" hidden>
+    <div class="ctl"><label for="rho">Correlation ρ <output id="rhoOut"></output></label>
+      <input id="rho" type="range" min="-0.95" max="0.95" step="0.01" value="0.85"></div>
+    <button id="tShapes" type="button" aria-pressed="false">Distance shapes</button>
+    <div class="seg" role="group" aria-label="Ellipse">
+      <span class="lbl">Ellipse:</span>
+      <button id="e0" type="button" aria-pressed="false">Off</button>
+      <button id="e95" type="button" aria-pressed="true">95 %</button>
+      <button id="e999" type="button" aria-pressed="false">99.9 %</button>
+    </div>
+  </div>
+</div>
+
+<div class="status"><p id="say"></p></div>
+
+<div class="grid">
+  <div class="card">
+    <h2 id="cTitle">Data</h2>
+    <p class="hint" id="hint"></p>
+    <canvas id="cv" width="720" height="720" tabindex="0" aria-label="Scatter plot with centroid and two new samples A and B"></canvas>
+  </div>
+  <div class="card">
+    <h2>Distance to the centroid</h2>
+    <table>
+      <thead><tr><th></th><th>Euclidean (ED)</th><th>Mahalanobis (MD)</th></tr></thead>
+      <tbody>
+        <tr><td class="nm"><span class="sw" style="background:var(--red)"></span>A (red)</td><td id="edA">–</td><td id="mdA">–</td></tr>
+        <tr><td class="nm"><span class="sw" style="background:var(--green)"></span>B (green)</td><td id="edB">–</td><td id="mdB">–</td></tr>
+      </tbody>
+    </table>
+    <div id="inBox" hidden>
+      <div class="big" id="nIn"></div>
+      <div class="small" id="inTxt"></div>
+    </div>
+    <div class="key" id="key"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var N=80, R=4.5, W=720, H=720, PAD=44, SC=(W-2*PAD)/(2*R), K95=Math.sqrt(5.991), K999=Math.sqrt(13.816), LAST=4, D0=1.5;
+var st={rho:0.85,A:null,B:null,step:0,shapes:false,lvl:95};
+/* limit of the ellipse: 95 % in the guided steps, 95 % or 99.9 % in free mode */
+function lim(){return (st.step===LAST&&st.lvl===99.9)?K999:K95}
+function lvlTxt(){return (st.step===LAST&&st.lvl===99.9)?"99.9":"95"}
+var Z=[], X=[], mu=[0,0], Si=[[1,0],[0,1]], L=[[1,0],[0,1]];
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function f(x,k){return x.toFixed(k)}
+function clamp(v){return Math.max(-R+0.1,Math.min(R-0.1,v))}
+
+/* fixed random numbers (seeded): the cloud is the same every time */
+var seed=7;
+function rnd(){seed|=0;seed=seed+0x6D2B79F5|0;var t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}
+function gauss(){var u=Math.max(rnd(),1e-9),v=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+for(var i=0;i<N;i++)Z.push([gauss(),gauss()]);
+
+/* correlated cloud with the chosen rho; centroid and covariance from the points */
+function cloud(){
+  var r=st.rho,q=Math.sqrt(1-r*r),n=N;
+  X=Z.map(function(z){return [z[0],r*z[0]+q*z[1]]});
+  mu=[0,0];X.forEach(function(p){mu[0]+=p[0]/n;mu[1]+=p[1]/n});
+  var a=0,b=0,c=0;
+  X.forEach(function(p){var u=p[0]-mu[0],v=p[1]-mu[1];a+=u*u;b+=u*v;c+=v*v});
+  a/=n-1;b/=n-1;c/=n-1;
+  var det=a*c-b*b;Si=[[c/det,-b/det],[-b/det,a/det]];
+  var l11=Math.sqrt(a),l21=b/l11,l22=Math.sqrt(c-l21*l21);L=[[l11,0],[l21,l22]];
+}
+/* start positions: same ruler distance D0 from the centroid, A along and B across the cloud */
+function startPoints(){
+  cloud();
+  var a=1/Math.SQRT2;
+  st.A=[mu[0]+D0*a,mu[1]+D0*a];
+  st.B=[mu[0]+D0*a,mu[1]-D0*a];
+}
+function ed(p){return Math.hypot(p[0]-mu[0],p[1]-mu[1])}
+function md(p){var dx=p[0]-mu[0],dy=p[1]-mu[1];return Math.sqrt(Math.max(0,Si[0][0]*dx*dx+2*Si[0][1]*dx*dy+Si[1][1]*dy*dy))}
+
+function px(x){return PAD+(x+R)*SC}
+function py(y){return H-PAD-(y+R)*SC}
+function inv(x,y){return [(x-PAD)/SC-R,(H-PAD-y)/SC-R]}
+
+/* all points with Mahalanobis distance k from the centroid: an ellipse in the shape of the cloud */
+function ellipse(g,k){
+  g.beginPath();
+  for(var j=0;j<=160;j++){var t=2*Math.PI*j/160,u=k*Math.cos(t),v=k*Math.sin(t);
+    var x=mu[0]+L[0][0]*u,y=mu[1]+L[1][0]*u+L[1][1]*v;if(j)g.lineTo(px(x),py(y));else g.moveTo(px(x),py(y))}
+  g.closePath();
+}
+var U=1; /* grows on narrow screens so labels stay readable */
+function dot(g,p,r,fill,stroke,lw){r*=U;g.beginPath();g.arc(px(p[0]),py(p[1]),r,0,2*Math.PI);g.fillStyle=fill;g.fill();if(stroke){g.lineWidth=lw||2.5;g.strokeStyle=stroke;g.stroke()}}
+function label(g,txt,x,y,col,align,base,size){
+  g.font="600 "+Math.round((size||21)*U)+"px "+FONT;g.textAlign=align||"left";g.textBaseline=base||"middle";
+  g.lineWidth=6;g.lineJoin="round";g.strokeStyle=css("--panel");g.strokeText(txt,x,y);g.fillStyle=col;g.fillText(txt,x,y);
+}
+/* label next to a sample, pushed away from the centroid so it never sits on the lines */
+function sampleLabel(g,p,txt,col){
+  var dx=p[0]-mu[0],dy=p[1]-mu[1],n=Math.hypot(dx,dy)||1,ux=dx/n,uy=dy/n;
+  var x=px(p[0])+ux*22*U,y=py(p[1])-uy*22*U;
+  label(g,txt,x,y,col,ux>=0?"left":"right",uy>=0?"bottom":"top");
+}
+
+function draw(){
+  var c=$("cv"),g=c.getContext("2d");
+  U=Math.max(1,Math.min(1.7,520/(c.clientWidth||720)));
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),accS=css("--accent-soft"),cloudC=css("--cloud"),panel=css("--panel"),red=css("--red"),green=css("--green"),blue=css("--blue");
+  var s=st.step,free=s===LAST;
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  g.save();g.beginPath();g.rect(px(-R),py(R),2*R*SC,2*R*SC);g.clip();
+  /* grid and axes */
+  g.strokeStyle=line;g.lineWidth=1;
+  for(var k=-4;k<=4;k++){g.beginPath();g.moveTo(px(-R),py(k));g.lineTo(px(R),py(k));g.stroke();g.beginPath();g.moveTo(px(k),py(-R));g.lineTo(px(k),py(R));g.stroke()}
+  g.strokeStyle=muted;g.lineWidth=2;g.beginPath();g.moveTo(px(-R),py(0));g.lineTo(px(R),py(0));g.moveTo(px(0),py(-R));g.lineTo(px(0),py(R));g.stroke();
+  g.font=Math.round(18*U)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";
+  for(k=-4;k<=4;k+=2)if(k)g.fillText(String(k),px(k),py(0)+6);
+  g.textAlign="right";g.textBaseline="middle";for(k=-4;k<=4;k+=2)if(k)g.fillText(String(k),px(0)-8,py(k));
+  g.font="600 "+Math.round(20*U)+"px "+FONT;g.fillStyle=ink;g.textAlign="right";g.textBaseline="bottom";g.fillText("x1",px(R)-6,py(0)-8);
+  g.textAlign="left";g.textBaseline="top";g.fillText("x2",px(0)+10,py(R)+6);
+
+  var showEll=(s===3)||(free&&st.lvl>0), showShapes=(s===1||s===2)||(free&&st.shapes);
+  /* 95 % ellipse */
+  if(showEll){ellipse(g,lim());g.fillStyle=accS;g.fill();g.setLineDash([12,7]);g.strokeStyle=acc;g.lineWidth=3;g.stroke();g.setLineDash([])}
+  /* observations; outside the 95 % ellipse: orange with a dark ring */
+  X.forEach(function(p){var out=showEll&&md(p)>lim();dot(g,p,out?7:5.5,out?acc:cloudC,out?ink:null,2)});
+  var A=st.A,B=st.B;
+  if(s>=1){
+    /* Euclidean: circle around the centroid (same ruler distance), straight lines */
+    if(showShapes&&s===1){g.beginPath();g.arc(px(mu[0]),py(mu[1]),ed(A)*SC,0,2*Math.PI);g.setLineDash([7,6]);g.strokeStyle=muted;g.lineWidth=2.5;g.stroke();g.setLineDash([])}
+    if(showShapes&&free){[[A,red],[B,green]].forEach(function(o){g.beginPath();g.arc(px(mu[0]),py(mu[1]),ed(o[0])*SC,0,2*Math.PI);g.setLineDash([6,7]);g.strokeStyle=o[1];g.globalAlpha=0.6;g.lineWidth=2;g.stroke();g.globalAlpha=1;g.setLineDash([])})}
+    /* Mahalanobis: one ellipse per sample, in the shape of the cloud */
+    if(showShapes&&(s===2||free)){ellipse(g,md(A));g.strokeStyle=red;g.lineWidth=3;g.stroke();ellipse(g,md(B));g.strokeStyle=green;g.lineWidth=3;g.stroke()}
+    [[A,red],[B,green]].forEach(function(o){g.beginPath();g.moveTo(px(mu[0]),py(mu[1]));g.lineTo(px(o[0][0]),py(o[0][1]));g.strokeStyle=o[1];g.lineWidth=3;g.stroke()});
+  }
+  /* centroid */
+  var cx=px(mu[0]),cy=py(mu[1]);
+  g.strokeStyle=panel;g.lineWidth=8;g.beginPath();g.moveTo(cx-12,cy);g.lineTo(cx+12,cy);g.moveTo(cx,cy-12);g.lineTo(cx,cy+12);g.stroke();
+  g.strokeStyle=blue;g.lineWidth=4;g.beginPath();g.moveTo(cx-12,cy);g.lineTo(cx+12,cy);g.moveTo(cx,cy-12);g.lineTo(cx,cy+12);g.stroke();
+  label(g,"centroid",cx-16*U,cy-14*U,blue,"right","bottom",19);
+  if(s>=1){
+    dot(g,A,11,red,panel,3);dot(g,B,11,green,panel,3);
+    var tA="A",tB="B";
+    if(s===1){tA="A: ED "+f(ed(A),2);tB="B: ED "+f(ed(B),2)}
+    else if(s>=2){tA="A: MD "+f(md(A),2);tB="B: MD "+f(md(B),2)}
+    sampleLabel(g,A,tA,red);sampleLabel(g,B,tB,green);
+  }
+  g.restore();
+}
+
+/* free mode: name every new sample that lies outside the current ellipse (A and/or B) */
+function outTxt(){
+  if(st.lvl===0)return "";
+  var k=lim(),out=[["A",st.A],["B",st.B]].filter(function(o){return md(o[1])>k}).map(function(o){return o[0]+" (MD "+f(md(o[1]),2)+")"});
+  if(!out.length)return "A and B both lie inside the ellipse. ";
+  return (out.length===2?out.join(" and ")+" both lie":out[0]+" lies")+" outside the ellipse: "+(out.length===2?"outliers. ":"an outlier. ");
+}
+function say(){
+  var A=st.A,B=st.B,inside=X.filter(function(p){return md(p)<=K95}).length;
+  switch(st.step){
+    case 0:return "Each grey dot is one sample, measured on two variables x1 and x2. The two move together (correlation ρ = "+f(st.rho,2)+"). The blue cross is the centroid: the average point, made of the mean of x1 and the mean of x2.";
+    case 1:return "Two new samples. A (red) lies along the cloud, B (green) lies across it. Measured with a ruler (Euclidean distance, ED), both are equally far from the centroid: ED = "+f(ed(A),2)+". Yet B clearly does not fit the cloud.";
+    case 2:return "The Mahalanobis distance (MD) measures in the shape of the cloud. Each coloured ellipse has the shape of the cloud and runs through one sample. Along the cloud a step counts as small: A has MD = "+f(md(A),2)+". Across the cloud the same step counts as big: B has MD = "+f(md(B),2)+".";
+    case 3:return "When is a sample unusual? With 2 variables and 5 %, the chi² table gives 5.991, so the limit is MD = √5.991 = 2.45. The ellipse should hold about 95 % of the samples. Here "+inside+" of "+N+" are inside. Orange dots lie outside: outliers. B (MD "+f(md(B),2)+") is an outlier, A is not.";
+    default:return (st.lvl===99.9?"99.9 % ellipse: the chi² table gives 13.816, so MD = √13.816 = 3.72. Only very unusual samples lie outside. ":"")+outTxt()+"Free mode: drag A and B, change the correlation, switch the shapes on and off. With ρ\u00a0=\u00a00 the cloud is round, and ED and MD are almost the same.";
+  }
+}
+
+function render(){
+  cloud();
+  var s=st.step,free=s===LAST,inside=X.filter(function(p){return md(p)<=lim()}).length;
+  $("freeRow").hidden=!free;
+  $("rhoOut").textContent=f(st.rho,2);$("rho").value=st.rho;
+  $("tShapes").setAttribute("aria-pressed",st.shapes?"true":"false");[["e0",0],["e95",95],["e999",99.9]].forEach(function(o){$(o[0]).setAttribute("aria-pressed",st.lvl===o[1]?"true":"false")});
+  $("edA").textContent=s>=1?f(ed(st.A),2):"–";$("edB").textContent=s>=1?f(ed(st.B),2):"–";
+  $("mdA").textContent=s>=2?f(md(st.A),2):"–";$("mdB").textContent=s>=2?f(md(st.B),2):"–";
+  $("inBox").hidden=!(s===3||(free&&st.lvl>0));$("nIn").textContent=inside+" of "+N;
+  $("inTxt").textContent="Inside the "+lvlTxt()+"\u00a0% ellipse. With real data it is never exactly "+lvlTxt()+"\u00a0%.";
+  $("key").innerHTML=(s>=2?"<div>MD = 1: one typical step away from the centroid.</div>":"")+((s===3||(free&&st.lvl>0))?"<div><span class='dash'></span>"+lvlTxt()+"\u00a0% ellipse: MD = "+(lim()===K999?"3.72":"2.45")+". Beyond it: outlier.</div>":"");
+  $("say").textContent=say().replace(/(\d) %/g,"$1\u00a0%");
+  $("cv").classList.toggle("free",free);
+  $("cTitle").textContent=["Data: 80 samples, two variables","Two new samples: A and B","Distance in the shape of the cloud","Which samples are unusual?","Free mode"][s];
+  $("hint").textContent=free?"Drag A or B.":"";
+  $("stepno").textContent="Step "+(s+1)+" of "+(LAST+1);
+  $("back").disabled=s===0;$("next").disabled=s===LAST;
+  draw();
+}
+function go(n){st.step=Math.max(0,Math.min(LAST,n));render()}
+
+$("rho").addEventListener("input",function(e){st.rho=+e.target.value;render()});
+$("tShapes").addEventListener("click",function(){st.shapes=!st.shapes;render()});
+[["e0",0],["e95",95],["e999",99.9]].forEach(function(o){$(o[0]).addEventListener("click",function(){st.lvl=o[1];render()})});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){st.rho=0.85;st.shapes=false;st.lvl=95;st.step=0;startPoints();render()});
+document.addEventListener("keydown",function(e){
+  if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}
+  else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}
+});
+$("full").addEventListener("click",function(){
+  try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}
+});
+
+/* drag A or B (free mode only) */
+var cv=$("cv"),drag=null;
+function pick(e){var r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
+function nearest(pt){var best=null,bd=34*U;["A","B"].forEach(function(k){var d=Math.hypot(px(st[k][0])-pt.x,py(st[k][1])-pt.y);if(d<bd){bd=d;best=k}});return best}
+cv.addEventListener("pointerdown",function(e){if(st.step!==LAST)return;var k=nearest(pick(e));if(!k)return;drag=k;cv.style.cursor="grabbing";try{cv.setPointerCapture(e.pointerId)}catch(err){}e.preventDefault()});
+cv.addEventListener("pointermove",function(e){var pt=pick(e);
+  if(!drag){cv.style.cursor=(st.step===LAST&&nearest(pt))?"grab":"default";return}
+  var p=inv(pt.x,pt.y);st[drag]=[clamp(p[0]),clamp(p[1])];render()});
+function endDrag(){drag=null;cv.style.cursor="default"}
+cv.addEventListener("pointerup",endDrag);cv.addEventListener("pointercancel",endDrag);
+
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+window.addEventListener("resize",render);
+startPoints();render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>k-means step by step</title>
+<style>
+/* A5 v3: k must be chosen in advance (unlike hierarchical); WCSS in words; centroid explained.
+   A5: k-means step by step. Next: place centroids, assign points, move centroids,
+   repeat until nothing changes. New start points show that the start matters (WCSS),
+   the elbow chart helps to choose k. Accent = FH #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1; --cloud:#9aa3ad;
+  --accent:#F6A420; --accent-soft:rgba(246,164,32,.22);
+  --c1:#F6A420; --c2:#2f6db5; --c3:#2e8b57; --c4:#8e44ad; --c5:#c0392b; --c6:#16a2b8; --c7:#8d6e63; --c8:#d63384;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046; --cloud:#6b747e;
+    --c2:#6aa2e6; --c3:#6fcf97; --c4:#c39bd3; --c5:#ef8a80; --c6:#5bc8d8; --c7:#bcaaa4; --c8:#f08fc0;}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1180px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto minmax(220px,1fr);gap:12px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button:disabled{opacity:.45;cursor:default}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:4px 0 0}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:104px}
+.status p{margin:0;font-size:1.12rem;max-width:66ch}
+.nums{display:flex;gap:24px;flex-wrap:wrap}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.8rem;white-space:nowrap}
+.nums .v{font-size:1.4rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 2px}
+.card p{margin:2px 0 8px;color:var(--muted);font-size:.92rem}
+.card[hidden]{display:none}
+canvas{display:block;width:100%;height:auto;aspect-ratio:1/1}
+.runs{font-size:.95rem;color:var(--muted);margin:6px 0 0;min-height:1.4em}
+.runs b{color:var(--ink)}
+@media (max-width:860px){.grid,.bar,.status{grid-template-columns:1fr}.nums{justify-content:flex-start}.nums div{text-align:left}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>k-means step by step</h1>
+    <p class="sub">Assign each point to the nearest centroid, move the centroids, repeat.</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="run" type="button">Run to the end</button>
+    <button id="restart" type="button">New start points</button>
+    <button id="reset" type="button">Reset</button>
+  </div>
+  <div class="seg" role="group" aria-label="Data set" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;grid-column:1/-1">
+    <span style="font-weight:600;color:var(--muted)">Data:</span>
+    <button id="dClear" type="button" aria-pressed="true">Clear groups</button>
+    <button id="dVague" type="button" aria-pressed="false">No clear groups</button>
+  </div>
+  <div class="ctl"><label for="k">Number of clusters k <output id="kOut"></output></label>
+    <input id="k" type="range" min="1" max="8" step="1" value="3"></div>
+</div>
+
+<div class="status">
+  <p id="say"></p>
+  <div class="nums">
+    <div><div class="k">Round</div><div class="v" id="nR">–</div></div>
+    <div><div class="k">Points changed</div><div class="v" id="nC">–</div></div>
+    <div><div class="k">WCSS (spread within clusters)</div><div class="v" id="nW">–</div></div>
+  </div>
+</div>
+
+<div class="grid" id="grid">
+  <div class="card">
+    <h2 id="lTitle">The data</h2>
+    <p id="lSub">60 samples, two variables.</p>
+    <canvas id="sc" width="600" height="600" aria-label="Scatter plot with clusters and centroids"></canvas>
+    <p class="runs" id="runs"></p>
+  </div>
+  <div class="card" id="rCard" hidden>
+    <h2>How many clusters? The elbow method</h2>
+    <p>WCSS = total spread within the clusters, for k = 1 to 8 (best of 10 starts each). Where the curve bends, more clusters bring little.</p>
+    <canvas id="el" width="600" height="600" aria-label="Elbow chart"></canvas>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var W=600,H=600,PD=56,X0=0,X1=10,Y0=0,Y1=10,ANIM=650;
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+/* canvas text grows on narrow screens (phones via QR) */
+var U=1;function fs(n){return Math.round(n*U)}
+function setU(){U=Math.max(1,Math.min(1.6,560/Math.max(320,Math.min(window.innerWidth,900)-40)))}
+/* set the font, shrinking it until txt fits into maxW */
+function fitText(g,txt,weight,size,maxW){var s=fs(size);do{g.font=weight+s+"px "+FONT;s--}while(g.measureText(txt).width>maxW&&s>10)}
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function makeRng(seed){var s=seed|0;return function(){s=s+0x6D2B79F5|0;var t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function f1(x){return x.toFixed(1)}
+
+/* Two data sets: three clear groups, or one stretched cloud without real groups (both fixed). */
+var P=[], DS='clear';
+function makeData(which){
+  var r=makeRng(which==='clear'?21:57);function g(){var u=Math.max(r(),1e-12),v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+  function clip(v){return Math.min(9.7,Math.max(0.3,v))}
+  var out=[];
+  if(which==='clear'){
+    [[2.8,7.2,0.75,22],[7.0,7.6,0.6,18],[5.6,2.8,0.95,20]].forEach(function(c){
+      for(var i=0;i<c[3];i++)out.push([clip(c[0]+c[2]*g()),clip(c[1]+c[2]*g())]);
+    });
+  }else{
+    /* evenly spread samples: no groups at all */
+    for(var i=0;i<60;i++)out.push([1.5+7*r(),1.5+7*r()]);
+  }
+  return out;
+}
+P=makeData('clear');
+
+function d2(a,b){var x=a[0]-b[0],y=a[1]-b[1];return x*x+y*y}
+function assign(C){return P.map(function(p){var best=0,bd=1e9;C.forEach(function(c,j){var d=d2(p,c);if(d<bd){bd=d;best=j}});return best})}
+function means(C,A){return C.map(function(c,j){var sx=0,sy=0,n=0;P.forEach(function(p,i){if(A[i]===j){sx+=p[0];sy+=p[1];n++}});return n?[sx/n,sy/n]:c.slice()})}
+function wcss(C,A){var s=0;P.forEach(function(p,i){s+=d2(p,C[A[i]])});return s}
+function startPoints(k,seed){var r=makeRng(seed*977+k),idx=[];while(idx.length<k){var i=Math.floor(r()*P.length);if(idx.indexOf(i)<0)idx.push(i)}return idx.map(function(i){return P[i].slice()})}
+function solve(k,seed){var C=startPoints(k,seed),A=assign(C);for(var it=0;it<100;it++){C=means(C,A);var B=assign(C);if(B.join()===A.join())break;A=B}return wcss(C,A)}
+
+/* Elbow curve: best of 10 random starts for each k. */
+var ELBOW=[];
+function elbow(){ELBOW=[];for(var kk=1;kk<=8;kk++){var best=1e9;for(var s=1;s<=10;s++)best=Math.min(best,solve(kk,100+s));ELBOW.push(best)}}
+elbow();
+
+/* State history (for Back). phase: data | init | assign | move | done */
+var DEF={k:3,seed:1};
+var SEEDS=[1,8,2,3,9,4,5,6,7,10,11,12,13,14,15,16,17,18,19,20];
+var st={k:DEF.k,seed:DEF.seed,si:0,hist:[],runs:[],anim:null};
+function cur(){return st.hist[st.hist.length-1]}
+function fresh(){st.hist=[{phase:'data',C:null,A:null,round:0,changed:null}]}
+
+function nextState(s){
+  if(s.phase==='data')return {phase:'init',C:startPoints(st.k,st.seed),A:null,round:0,changed:null};
+  if(s.phase==='init'||s.phase==='move'){
+    var A=assign(s.C), ch=s.A?A.filter(function(a,i){return a!==s.A[i]}).length:P.length;
+    var done=s.A&&ch===0;
+    return {phase:done?'done':'assign',C:s.C,A:A,prevA:s.A,round:done?s.round:s.round+1,changed:s.A?ch:null};
+  }
+  if(s.phase==='assign')return {phase:'move',C:means(s.C,s.A),prevC:s.C,A:s.A,round:s.round,changed:null};
+  return null;
+}
+
+function colors(){var a=[];for(var i=1;i<=8;i++)a.push(css("--c"+i));return a}
+function px(x){return PD+(x-X0)/(X1-X0)*(W-2*PD)}
+function py(y){return H-PD-(y-Y0)/(Y1-Y0)*(H-2*PD)}
+
+function drawCentroid(g,c,col,ink){
+  var x=px(c[0]),y=py(c[1]),r=13*U;
+  g.beginPath();g.moveTo(x,y-r);g.lineTo(x+r,y);g.lineTo(x,y+r);g.lineTo(x-r,y);g.closePath();
+  g.fillStyle=col;g.fill();g.lineWidth=3.5;g.strokeStyle=ink;g.stroke();
+}
+
+function draw(t){
+  /* t: animation progress 0..1 (1 = finished) */
+  var c=$("sc"),g=c.getContext("2d"),s=cur();
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),cloud=css("--cloud"),panel=css("--panel"),COL=colors();
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();
+  for(var k=0;k<=10;k++){g.moveTo(px(k),py(Y0));g.lineTo(px(k),py(Y1));g.moveTo(px(X0),py(k));g.lineTo(px(X1),py(k))}
+  g.stroke();
+  g.strokeStyle=ink;g.lineWidth=2;g.strokeRect(PD,PD,W-2*PD,H-2*PD);
+  g.font="600 "+fs(20)+"px "+FONT;g.fillStyle=ink;g.textAlign="center";g.textBaseline="top";g.fillText("variable 1",W/2,H-PD+12);
+  g.save();g.translate(PD-14,H/2);g.rotate(-Math.PI/2);g.textBaseline="bottom";g.fillText("variable 2",0,0);g.restore();
+
+  /* points: colour sweeps in from left to right during an assignment */
+  var A=s.A, sweepX=X0+(X1-X0)*t*1.05;
+  P.forEach(function(p,i){
+    var col=cloud;
+    if(A){
+      var newC=COL[A[i]], oldC=s.prevA?COL[s.prevA[i]]:cloud;
+      col=(s.phase==='assign'||s.phase==='done')?(p[0]<=sweepX?newC:oldC):newC;
+    }
+    g.beginPath();g.arc(px(p[0]),py(p[1]),6.5*U,0,2*Math.PI);g.fillStyle=col;g.fill();
+  });
+
+  /* first assignment: show the distances of one example point to all centroids */
+  if(s.phase==='assign'&&s.round===1&&!s.prevA){
+    var ex=P[5], best=s.A[5];
+    s.C.forEach(function(cc,j){
+      g.setLineDash(j===best?[]:[6,6]);g.strokeStyle=j===best?ink:muted;g.lineWidth=j===best?3:2;
+      g.beginPath();g.moveTo(px(ex[0]),py(ex[1]));g.lineTo(px(cc[0]),py(cc[1]));g.stroke();
+    });
+    g.setLineDash([]);
+    g.beginPath();g.arc(px(ex[0]),py(ex[1]),11,0,2*Math.PI);g.lineWidth=3;g.strokeStyle=ink;g.stroke();
+    g.font="600 "+fs(18)+"px "+FONT;g.textAlign="left";g.textBaseline="bottom";
+    g.textAlign="left";g.textBaseline="top";
+    g.lineWidth=6;g.strokeStyle=panel;g.strokeText("nearest centroid wins",px(ex[0])+16,py(ex[1])+14);
+    g.fillStyle=ink;g.fillText("nearest centroid wins",px(ex[0])+16,py(ex[1])+14);
+  }
+
+  /* centroids: during a move they glide from the old to the new position, with a trail */
+  if(s.C){
+    s.C.forEach(function(cc,j){
+      var pos=cc;
+      if(s.phase==='move'&&s.prevC){
+        var o=s.prevC[j],e=t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+        pos=[o[0]+(cc[0]-o[0])*e,o[1]+(cc[1]-o[1])*e];
+        g.setLineDash([6,5]);g.strokeStyle=ink;g.lineWidth=2;g.beginPath();g.moveTo(px(o[0]),py(o[1]));g.lineTo(px(pos[0]),py(pos[1]));g.stroke();g.setLineDash([]);
+        g.beginPath();g.arc(px(o[0]),py(o[1]),5,0,2*Math.PI);g.fillStyle=ink;g.fill();
+      }
+      drawCentroid(g,pos,COL[j],ink);
+    });
+  }
+}
+
+function drawElbow(){
+  var c=$("el"),g=c.getContext("2d"),s=cur();
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),panel=css("--panel");
+  var L=Math.round(34+fs(19)+fs(18)*2.2),R=W-24,T=30,B=H-PD-6-fs(19)+19,mx=Math.ceil(ELBOW[0]/50)*50;
+  function xx(k){return L+(k-1)/7*(R-L)}
+  function yy(v){return B-v/mx*(B-T)}
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();
+  for(var v=0;v<=mx;v+=mx/5){g.moveTo(L,yy(v));g.lineTo(R,yy(v))}
+  for(var k=1;k<=8;k++){g.moveTo(xx(k),T);g.lineTo(xx(k),B)}
+  g.stroke();
+  g.font=""+fs(18)+"px "+FONT;g.fillStyle=muted;g.textAlign="right";g.textBaseline="middle";
+  for(v=0;v<=mx;v+=mx/5)g.fillText(String(Math.round(v)),L-8,yy(v));
+  g.textAlign="center";g.textBaseline="top";
+  for(k=1;k<=8;k++)g.fillText(String(k),xx(k),B+8);
+  g.fillStyle=ink;g.font="600 "+fs(19)+"px "+FONT;g.fillText("number of clusters k",(L+R)/2,B+12+fs(18));
+  g.save();g.translate(10+fs(19)/2,(T+B)/2);g.rotate(-Math.PI/2);g.textBaseline="middle";g.fillText("WCSS (total spread within the clusters)",0,0);g.restore();
+  g.beginPath();ELBOW.forEach(function(w,i){var X=xx(i+1),Y=yy(w);if(i)g.lineTo(X,Y);else g.moveTo(X,Y)});
+  g.strokeStyle=ink;g.lineWidth=4;g.lineJoin="round";g.stroke();
+  ELBOW.forEach(function(w,i){g.beginPath();g.arc(xx(i+1),yy(w),5,0,2*Math.PI);g.fillStyle=ink;g.fill()});
+  /* elbow marker at k = 3 */
+  g.font="600 "+fs(18)+"px "+FONT;g.fillStyle=ink;g.textAlign="left";g.textBaseline="bottom";
+  if(DS==='clear'){
+    g.lineWidth=6;g.strokeStyle=panel;
+    /* one line on wide screens, two lines when it does not fit */
+    var e1="elbow at k = 3: more clusters bring little",ex=xx(3)+12,ey=yy(ELBOW[2])-10;
+    g.font="600 "+fs(18)+"px "+FONT;
+    if(g.measureText(e1).width<=W-ex-8){g.strokeText(e1,ex,ey);g.fillText(e1,ex,ey)}
+    else{var l1="elbow at k = 3:",l2="more clusters bring little";fitText(g,l2,"600 ",18,W-ex-8);
+      g.strokeText(l1,ex,ey-fs(22));g.fillText(l1,ex,ey-fs(22));g.strokeText(l2,ex,ey);g.fillText(l2,ex,ey)}
+  }else{
+    g.lineWidth=6;g.strokeStyle=panel;g.textAlign="left";g.textBaseline="bottom";
+    fitText(g,"no clear elbow: no obvious k","600 ",18,W-xx(4)-16);
+    g.strokeText("no clear elbow: no obvious k",xx(4)+10,yy(ELBOW[3])-60);
+    g.fillText("no clear elbow: no obvious k",xx(4)+10,yy(ELBOW[3])-60);
+  }
+  /* this run */
+  if(s.phase==='done'){
+    var w=wcss(s.C,s.A);
+    g.beginPath();g.arc(xx(st.k),yy(w),10,0,2*Math.PI);g.fillStyle=panel;g.fill();g.lineWidth=4;g.strokeStyle=acc;g.stroke();
+    var lft=st.k>1;g.fillStyle=acc;g.textAlign=lft?"right":"left";g.textBaseline="top";
+    var worse=w>ELBOW[st.k-1]*1.02;
+    var lab="your run"+(worse?" (worse start)":"");g.font="600 "+fs(18)+"px "+FONT;
+    g.lineWidth=6;g.strokeStyle=panel;g.strokeText(lab,xx(st.k)+(lft?-14:14),yy(w)+10);g.fillText(lab,xx(st.k)+(lft?-14:14),yy(w)+10);
+  }
+}
+
+function say(s){
+  var k=st.k;
+  switch(s.phase){
+    case 'data': return DS==='clear'?"60 samples with two variables. Are there groups? Unlike hierarchical clustering, k-means needs the number of clusters k before it starts. Here k = "+k+". Press Next.":
+      "Another 60 samples, spread evenly: no real groups. What does k-means do with k = "+k+"? Press Next.";
+    case 'init': return "Step 1: place "+k+" centroid"+(k>1?"s":"")+" (diamonds) at random. A centroid is the centre of a cluster. Here they start on randomly chosen samples.";
+    case 'assign':
+      if(!s.prevA)return "Step 2: each sample joins its nearest centroid (Euclidean distance). The circled sample: the solid line is the shortest, so it gets that colour.";
+      return "Step 2 again: reassign every sample to its nearest centroid. "+s.changed+" sample"+(s.changed===1?"":"s")+" changed cluster.";
+    case 'move': return "Step 3: each centroid moves to the mean of its samples (the centre of its colour).";
+    case 'done':
+      var w=wcss(s.C,s.A),best=ELBOW[k-1],worse=w>best*1.02;
+      return "No sample changes cluster any more: converged after "+s.round+" round"+(s.round>1?"s":"")+". WCSS = "+f1(w)+" (total spread within the clusters: squared distances of all samples to their own centroid, added up). "+
+        (DS==='vague'?"k-means always delivers k clusters, even without real groups. The elbow curve has no clear bend: interpret such clusters with care.":
+          (worse?"Other start points reach "+f1(best)+": this start ended in a worse solution. Try New start points.":"Try New start points or another k."));
+  }
+}
+
+function render(t){
+  setU();
+  if(t===undefined)t=1;
+  var s=cur();
+  $("kOut").textContent=st.k;$("k").value=st.k;
+  $("dClear").setAttribute("aria-pressed",DS==='clear'?"true":"false");$("dVague").setAttribute("aria-pressed",DS==='vague'?"true":"false");
+  $("say").textContent=say(s);
+  $("nR").textContent=s.round?String(s.round):"–";
+  $("nC").textContent=s.changed===null||s.changed===undefined?"–":String(s.changed);
+  $("nW").textContent=s.A?f1(wcss(s.C,s.A)):"–";
+  var titles={data:"The data",init:"Random start",assign:"Assign to the nearest centroid",move:"Move the centroids",done:"Converged"};
+  $("lTitle").textContent=titles[s.phase];
+  $("lSub").textContent=s.phase==='data'?"60 samples, two variables.":"Diamonds: centroids. Colour: cluster.";
+  $("back").disabled=st.hist.length<=1;
+  $("next").disabled=s.phase==='done';
+  $("run").disabled=s.phase==='done';
+  var done=s.phase==='done';
+  $("rCard").hidden=!done;
+  $("grid").style.gridTemplateColumns=done?"":"minmax(0,640px)";
+  $("grid").style.justifyContent=done?"":"center";
+  $("runs").innerHTML=st.runs.length?("Your runs with k = "+st.k+" (WCSS): "+(function(){var m=Math.min.apply(null,st.runs),first=st.runs.indexOf(m);return st.runs.map(function(w,i){return i===first?"<b>"+f1(w)+" (best)</b>":f1(w)}).join(", ")})()):"";
+  draw(t);
+  if(done)drawElbow();
+}
+
+function animate(){
+  if(st.anim)cancelAnimationFrame(st.anim);
+  var s=cur();
+  if(!(s.phase==='assign'||s.phase==='move'||(s.phase==='done'))){render(1);return}
+  var t0=null;
+  function tick(now){if(t0===null)t0=now;var t=Math.min(1,(now-t0)/ANIM);render(t);st.anim=t<1?requestAnimationFrame(tick):null}
+  st.anim=requestAnimationFrame(tick);
+}
+function stopAnim(){if(st.anim){cancelAnimationFrame(st.anim);st.anim=null}}
+
+function next(){
+  stopAnim();var n=nextState(cur());if(!n){render();return}
+  st.hist.push(n);
+  if(n.phase==='done'){st.runs.push(wcss(n.C,n.A));if(st.runs.length>6)st.runs.shift()}
+  animate();
+}
+function runToEnd(){
+  stopAnim();
+  var guard=0;
+  while(cur().phase!=='done'&&guard<400){var n=nextState(cur());st.hist.push(n);guard++;
+    if(n.phase==='done'){st.runs.push(wcss(n.C,n.A));if(st.runs.length>6)st.runs.shift()}}
+  render(1);
+}
+function restart(){stopAnim();st.si=(st.si+1)%SEEDS.length;st.seed=SEEDS[st.si];fresh();st.hist.push(nextState(cur()));render(1)}
+
+function setDS(w){stopAnim();DS=w;P=makeData(w);elbow();st.seed=DEF.seed;st.si=0;st.runs=[];fresh();render(1)}
+$("dClear").addEventListener("click",function(){setDS('clear')});
+$("dVague").addEventListener("click",function(){setDS('vague')});
+$("next").addEventListener("click",next);
+$("back").addEventListener("click",function(){stopAnim();if(st.hist.length>1){var s=st.hist.pop();if(s.phase==='done')st.runs.pop()}render(1)});
+$("run").addEventListener("click",runToEnd);
+$("restart").addEventListener("click",restart);
+$("reset").addEventListener("click",function(){stopAnim();if(DS!=='clear'){DS='clear';P=makeData('clear');elbow()}st.k=DEF.k;st.seed=DEF.seed;st.si=0;st.runs=[];fresh();render(1)});
+$("k").addEventListener("input",function(e){stopAnim();st.k=+e.target.value;st.runs=[];fresh();st.hist.push(nextState(cur()));render(1)});
+document.addEventListener("keydown",function(e){
+  if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){next();e.preventDefault()}
+  else if(e.key==="ArrowLeft"){$("back").click();e.preventDefault()}
+});
+$("full").addEventListener("click",function(){
+  try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}
+});
+/* redraw only when the window width really changes */
+var lastW=window.innerWidth;window.addEventListener("resize",function(){if(window.innerWidth===lastW)return;lastW=window.innerWidth;render(1)});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",function(){render(1)});
+fresh();render(1);
+})();
+</script>
+</body>
+</html>

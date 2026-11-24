@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hierarchical clustering: the dendrogram grows</title>
+<style>
+/* A6 v6: linkage sentence at the first new distance matrix; why standardize (large numbers dominate).
+   A6: hierarchical clustering of the 5 parameters from the batch example (slides 520-535).
+   Distance matrix -> merge the closest pair -> update the matrix, step by step.
+   Linkage switch (single / complete / average), scale switch (original / standardized),
+   draggable cut line. Accent = FH #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent-soft:rgba(246,164,32,.25);
+  --c1:#F6A420; --c2:#2f6db5; --c3:#2e8b57; --c4:#8e44ad; --c5:#c0392b;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046;
+    --c2:#6aa2e6; --c3:#6fcf97; --c4:#c39bd3; --c5:#ef8a80;}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1240px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns,.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lbl{font-weight:600;color:var(--muted)}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,canvas:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.stepno{color:var(--muted);font-size:.9rem;margin-left:4px;font-variant-numeric:tabular-nums}
+.status{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:96px}
+.status p{margin:0;font-size:1.12rem;max-width:80ch}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 12px;min-width:0}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 2px}
+.card p{margin:2px 0 8px;color:var(--muted);font-size:.92rem}
+table{border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:1.02rem;width:100%}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:650;color:var(--muted)}
+th.rowh{text-align:left;color:var(--ink)}
+td.min{background:var(--accent-soft);font-weight:700;outline:2px solid var(--accent);outline-offset:-2px}
+td.empty{color:transparent}
+.tabwrap{overflow-x:auto}
+.note{font-size:.92rem;color:var(--muted);margin-top:10px}
+canvas{display:block;width:100%;height:auto;aspect-ratio:700/600;touch-action:none}
+#lk{aspect-ratio:1100/380}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Hierarchical clustering: the dendrogram grows</h1>
+    <p class="sub">Five parameters measured in five batches. Which parameters behave alike?</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="seg" role="group" aria-label="Linkage">
+    <span class="lbl">Linkage:</span>
+    <button id="lSingle" type="button" aria-pressed="false">Single</button>
+    <button id="lComplete" type="button" aria-pressed="true">Complete</button>
+    <button id="lAverage" type="button" aria-pressed="false">Average</button>
+  </div>
+  <button id="lkBtn" type="button" aria-pressed="false">Show linkage comparison</button>
+  <div class="seg" role="group" aria-label="Scale">
+    <span class="lbl">Scale:</span>
+    <button id="sOrig" type="button" aria-pressed="true">Original</button>
+    <button id="sStd" type="button" aria-pressed="false">Standardized</button>
+    <span class="lbl" id="scHint" style="font-weight:400"></span>
+  </div>
+</div>
+
+<div class="status"><p id="say"></p></div>
+
+<div class="grid">
+  <div class="card">
+    <div id="origBox" hidden>
+      <h2>Original distances (overview)</h2>
+      <p id="origSub">Distances between the single parameters. They never change.</p>
+      <div class="tabwrap"><table id="orig"></table></div>
+    </div>
+    <h2 id="tTitle"></h2>
+    <p id="tSub"></p>
+    <div class="tabwrap"><table id="tab"></table></div>
+    <p class="note" id="note"></p>
+  </div>
+  <div class="card">
+    <h2>Dendrogram</h2>
+    <p id="dSub">Height of a link = distance at which the two clusters merge.</p>
+    <canvas id="dg" width="700" height="600" tabindex="0" aria-label="Dendrogram with draggable cut line"></canvas>
+    <div class="ctl" id="cutCtl" hidden style="margin-top:8px"><label for="cut" style="display:flex;justify-content:space-between;font-weight:600">Cut height <output id="cutOut" style="font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px"></output></label>
+      <input id="cut" type="range" min="0" max="100" step="0.5" value="50" style="width:100%;accent-color:var(--accent);height:24px"></div>
+  </div>
+  <div class="card" id="lnkCard" style="grid-column:1/-1" hidden>
+    <h2>Single, complete and average linkage in this step</h2>
+    <p id="lkSub"></p>
+    <canvas id="lk" width="1100" height="380" aria-label="Linkage comparison"></canvas>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+/* Batch example from the slides: rows = parameters, columns = batches 1-5 */
+var NAMES=["turbidity","pH","viscosity","density","color score"];
+var RAW=[[10,11,9,10,10],[7.2,7.3,7.4,7.2,7.3],[1.2,1.3,1.1,1.2,1.3],[1.01,1.02,1,1.01,1],[13,9,8,14,9]];
+var W=700,H=600,LAST=9;
+var st={step:0,link:'complete',scale:'orig',cut:null,showLk:false};
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function f2(x){return x.toFixed(2)}
+
+function data(){
+  if(st.scale==='orig')return RAW;
+  return RAW.map(function(r){var m=r.reduce(function(a,b){return a+b},0)/r.length,s=Math.sqrt(r.reduce(function(a,b){return a+(b-m)*(b-m)},0)/(r.length-1));return r.map(function(v){return (v-m)/s})});
+}
+function dist(a,b){var s=0;for(var i=0;i<a.length;i++)s+=(a[i]-b[i])*(a[i]-b[i]);return Math.sqrt(s)}
+
+/* Agglomerative clustering. Returns the matrix state before each merge and the merges. */
+function cluster(){
+  var X=data(),n=X.length,D0=[],i,j;
+  for(i=0;i<n;i++){D0.push([]);for(j=0;j<n;j++)D0[i].push(dist(X[i],X[j]))}
+  var clusters=NAMES.map(function(nm,k){return {members:[k],id:k}});
+  function cd(a,b){
+    var v=[];a.members.forEach(function(p){b.members.forEach(function(q){v.push(D0[p][q])})});
+    if(st.link==='single')return Math.min.apply(null,v);
+    if(st.link==='complete')return Math.max.apply(null,v);
+    return v.reduce(function(s,x){return s+x},0)/v.length;
+  }
+  var states=[],merges=[],nextId=n;
+  while(clusters.length>1){
+    var M=[],best=null;
+    for(i=0;i<clusters.length;i++){M.push([]);for(j=0;j<clusters.length;j++){var d=i===j?0:cd(clusters[i],clusters[j]);M[i].push(d);
+      if(j<i&&(!best||d<best.d-1e-9))best={i:i,j:j,d:d}}}
+    states.push({clusters:clusters.map(function(c){return {members:c.members.slice(),id:c.id}}),M:M,best:best});
+    var a=clusters[best.j],b=clusters[best.i];
+    var nc={members:a.members.concat(b.members),id:nextId++,left:a,right:b,h:best.d};
+    merges.push({a:a.id,b:b.id,id:nc.id,h:best.d,members:nc.members.slice(),aMem:a.members.slice(),bMem:b.members.slice()});
+    clusters=clusters.filter(function(c,k){return k!==best.i&&k!==best.j});
+    clusters.push(nc);
+  }
+  /* leaf order from the final tree, so that no lines cross */
+  var order=[];(function walk(c){if(c.left){walk(c.left);walk(c.right)}else order.push(c.id)})(clusters[0]);
+  return {D0:D0,states:states,merges:merges,order:order};
+}
+
+function cname(c){return c.members.map(function(m){return NAMES[m]}).join(" + ")}
+function cnameP(c){return c.members.length>1?"("+cname(c)+")":cname(c)}
+
+/* Step plan: data, matrix, then per merge: "merge" (smallest value joins) and "update" (new distances), done */
+function ph(){
+  if(st.step===0)return {t:'data'};
+  if(st.step===1)return {t:'matrix'};
+  if(st.step===LAST)return {t:'done'};
+  var i=st.step-2;return {t:i%2===0?'merge':'update',k:Math.floor(i/2)};
+}
+/* groups of member pairs: for an update, the new cluster against every other cluster */
+function groupsUpdate(R,k){
+  var m=R.merges[k],C=R.states[k+1].clusters;
+  return C.slice(0,-1).map(function(o){var pairs=[];m.members.forEach(function(p){o.members.forEach(function(q){pairs.push({p:p,q:q,d:R.D0[p][q]})})});
+    return {A:m.members,B:o.members,pairs:pairs}});
+}
+function groupMerge(R,k){var m=R.merges[k],pairs=[];m.aMem.forEach(function(p){m.bMem.forEach(function(q){pairs.push({p:p,q:q,d:R.D0[p][q]})})});return [{A:m.aMem,B:m.bMem,pairs:pairs}]}
+function linkVal(pairs){var v=pairs.map(function(x){return x.d});return st.link==='single'?Math.min.apply(null,v):(st.link==='complete'?Math.max.apply(null,v):v.reduce(function(s,x){return s+x},0)/v.length)}
+
+function drawTable(R){
+  var t=$("tab"),html="",P=ph();
+  if(P.t==='data'){
+    var X=data();
+    html="<tr><th class='rowh'>Parameter</th>"+[1,2,3,4,5].map(function(b){return "<th>Batch "+b+"</th>"}).join("")+"</tr>";
+    X.forEach(function(r,i){html+="<tr><th class='rowh'>"+NAMES[i]+"</th>"+r.map(function(v){return "<td>"+(st.scale==='orig'?String(v):v.toFixed(2))+"</td>"}).join("")+"</tr>"});
+    t.innerHTML=html;return;
+  }
+  if(P.t==='done'){
+    html="<tr><th class='rowh'>Merge</th><th class='rowh'>Clusters joined</th><th>Height</th></tr>";
+    R.merges.forEach(function(m,k){html+="<tr><th class='rowh'>"+(k+1)+"</th><td style='text-align:left;white-space:normal'>"+cnameP({members:m.aMem})+" and "+cnameP({members:m.bMem})+"</td><td>"+f2(m.h)+"</td></tr>"});
+    t.innerHTML=html;return}
+  var S=P.t==='matrix'?R.states[0]:(P.t==='merge'?R.states[P.k]:R.states[P.k+1]);
+  var C=S.clusters,newRow=P.t==='update'?C.length-1:-1;
+  html="<tr><th></th>"+C.slice(0,-1).map(function(c){return "<th>"+cname(c)+"</th>"}).join("")+"</tr>";
+  for(var i=1;i<C.length;i++){
+    html+="<tr><th class='rowh'"+(i===newRow?" style='color:var(--accent)'":"")+">"+cname(C[i])+(i===newRow?" (new)":"")+"</th>";
+    for(var j=0;j<C.length-1;j++){
+      if(j<i){var cls=(P.t==='merge'&&S.best.i===i&&S.best.j===j)?" class='min'":(i===newRow?" style='background:var(--accent-soft)'":"");html+="<td"+cls+">"+f2(S.M[i][j])+"</td>"}
+      else html+="<td class='empty'>.</td>";
+    }
+    html+="</tr>";
+  }
+  t.innerHTML=html;
+}
+
+/* Overview table of the original distances. Cells used for the example in this step are marked. */
+function drawOrig(R){
+  var P=ph(),box=$("origBox");box.hidden=!(P.t==='merge'||P.t==='update');if(box.hidden)return;
+  var G=P.t==='merge'?groupMerge(R,P.k):groupsUpdate(R,P.k), used={},chosen={};
+  G.forEach(function(gp){var v=linkVal(gp.pairs);gp.pairs.forEach(function(x){var key=Math.max(x.p,x.q)+"_"+Math.min(x.p,x.q);used[key]=1;if(st.link==='average'||Math.abs(x.d-v)<1e-9)chosen[key]=1})});
+  var mem=P.t==='update'?G[0].A:[];
+  function hd(n,k){return mem.indexOf(k)>=0?"<span style='color:var(--accent)'>"+n+"</span>":n}
+  var html="<tr><th></th>"+NAMES.slice(0,-1).map(function(n,k){return "<th>"+hd(n,k)+"</th>"}).join("")+"</tr>";
+  for(var i=1;i<NAMES.length;i++){html+="<tr><th class='rowh'>"+hd(NAMES[i],i)+"</th>";
+    for(var j=0;j<NAMES.length-1;j++){
+      if(j>=i){html+="<td class='empty'>.</td>";continue}
+      var key=i+"_"+j,stl=chosen[key]?" class='min'":(used[key]?" style='background:var(--accent-soft)'":(P.t==='update'?" style='opacity:.35'":""));
+      html+="<td"+stl+">"+f2(R.D0[i][j])+"</td>"}
+    html+="</tr>"}
+  $("orig").innerHTML=html;
+  $("origSub").textContent=P.t==='merge'?"Marked: where the merged value comes from ("+st.link+" linkage).":"Orange names: the members of the new cluster. Only distances from these members count for the new row ("+st.link+" linkage: "+(st.link==='average'?"all are averaged":(st.link==='single'?"the smallest of each group counts":"the largest of each group counts"))+"). Faded: distances between other clusters, they stay the same.";
+}
+
+/* Linkage comparison for the cluster pair of this step: each bar is the distance between one member
+   of each cluster. Single takes the shortest, complete the longest, average the mean of all bars. */
+function drawLink(R){
+  var card=$("lnkCard");card.hidden=!st.showLk;if(card.hidden)return;
+  var P=ph(),c=$("lk"),Wl=1100;
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),accS=css("--accent-soft"),panel=css("--panel");
+  var G=P.t==='merge'?groupMerge(R,P.k):(P.t==='update'?groupsUpdate(R,P.k):(P.t==='done'?groupMerge(R,R.merges.length-1):null));
+  var nb=G?G.reduce(function(s,gp){return s+gp.pairs.length},0):0, ng=G?G.length:0;
+  var BH=24,GAP=6,HD=G&&ng>1?26:0, top=78, Hl=Math.max(200,top+nb*(BH+GAP)+ng*HD+30);
+  c.height=Hl;c.style.aspectRatio=Wl+"/"+Hl;
+  var g=c.getContext("2d");g.fillStyle=panel;g.fillRect(0,0,Wl,Hl);
+  if(!G){$("lkSub").textContent="Appears as soon as clusters are merged.";
+    g.font="20px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="middle";g.fillText("Press Next: the comparison starts with the first merge.",Wl/2,Hl/2);return}
+  $("lkSub").textContent=P.t==='update'?"The new cluster "+cnameP({members:G[0].A})+" needs a distance to every other cluster. Each bar: the distance between one member of each cluster.":
+    "How far apart are the two clusters that merge: "+cnameP({members:G[0].A})+" and "+cnameP({members:G[0].B})+"? Each bar: the distance between one member of each cluster.";
+  var dmax=0;G.forEach(function(gp){gp.pairs.forEach(function(x){dmax=Math.max(dmax,x.d)})});dmax*=1.1;
+  var defs=[["single","Single: the shortest counts"],["complete","Complete: the longest counts"],["average","Average: the mean of all"]];
+  defs.forEach(function(df,k){
+    var ox=20+k*360,wP=340,LW=150,VW=50,bx=ox+LW,bw=wP-LW-VW-8;
+    if(st.link===df[0]){g.fillStyle=accS;g.fillRect(ox-8,6,wP+16,Hl-12)}
+    g.font="700 20px "+FONT;g.fillStyle=ink;g.textAlign="left";g.textBaseline="top";g.fillText(df[1],ox,16);
+    function X(d){return bx+d/dmax*bw}
+    var y=top-26;
+    G.forEach(function(gp){
+      var ps=gp.pairs.slice().sort(function(a,b){return a.d-b.d});
+      var v=df[0]==='single'?ps[0].d:(df[0]==='complete'?ps[ps.length-1].d:ps.reduce(function(s,x){return s+x.d},0)/ps.length);
+      g.font="600 16px "+FONT;g.fillStyle=ink;g.textAlign="left";g.textBaseline="top";
+      g.fillText((ng>1?"to "+cnameP({members:gp.B})+": ":"")+"= "+f2(v),ox,y);y+=24;
+      var y0=y;
+      ps.forEach(function(x,i){
+        var ch=(df[0]==='single'&&i===0)||(df[0]==='complete'&&i===ps.length-1);
+        g.globalAlpha=df[0]==='average'?0.55:1;g.fillStyle=ch||df[0]==='average'?acc:line;g.fillRect(bx,y,X(x.d)-bx,BH);g.globalAlpha=1;
+        g.font=(ch?"600 ":"")+"13px "+FONT;g.fillStyle=ink;g.textBaseline="middle";g.textAlign="right";
+        g.fillText(NAMES[x.p]+" – "+NAMES[x.q],bx-6,y+BH/2);
+        g.textAlign="right";g.fillStyle=ch?ink:muted;g.fillText(f2(x.d),ox+wP-4,y+BH/2);
+        y+=BH+GAP;
+      });
+      if(df[0]==='average'){var xm=X(v);g.setLineDash([6,4]);g.strokeStyle=ink;g.lineWidth=2.5;g.beginPath();g.moveTo(xm,y0-4);g.lineTo(xm,y-GAP+4);g.stroke();g.setLineDash([])}
+      y+=HD-24+8;
+    });
+  });
+}
+
+/* Dendrogram up to the number of merges shown in this step */
+function drawDendro(R){
+  var c=$("dg"),g=c.getContext("2d");
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),acc=css("--accent"),panel=css("--panel");
+  var COL=[1,2,3,4,5].map(function(i){return css("--c"+i)});
+  g.fillStyle=panel;g.fillRect(0,0,W,H);
+  var L=86,Rr=W-30,T=30,B=H-120;
+  var hmax=R.merges[R.merges.length-1].h*1.1;
+  function yy(h){return B-h/hmax*(B-T)}
+  var step=hmax>8?5:(hmax>4?1:0.5);
+  g.font="17px "+FONT;g.strokeStyle=line;g.lineWidth=1;g.fillStyle=muted;g.textAlign="right";g.textBaseline="middle";
+  for(var v=0;v<=hmax;v+=step){g.beginPath();g.moveTo(L,yy(v));g.lineTo(Rr,yy(v));g.stroke();g.fillText(String(v),L-8,yy(v))}
+  g.save();g.translate(22,(T+B)/2);g.rotate(-Math.PI/2);g.textAlign="center";g.fillStyle=ink;g.font="600 18px "+FONT;g.fillText("Euclidean distance",0,0);g.restore();
+
+  var pos={};R.order.forEach(function(id,k){pos[id]={x:L+40+k*(Rr-L-80)/(R.order.length-1),y:B}});
+  var P=ph(),shown=P.t==='merge'||P.t==='update'?P.k+1:(P.t==='done'?R.merges.length:0);
+  var done=st.step===LAST, mergeStep=P.t==='merge';
+  /* clusters below the cut line get colours */
+  var colorOf={};
+  if(done&&st.cut===null)st.cut=defaultCut(R);
+  if(done&&st.cut!==null){
+    var groups=NAMES.map(function(n,k){return [k]});
+    R.merges.forEach(function(m){if(m.h<=st.cut){groups=groups.filter(function(gp){return m.members.indexOf(gp[0])<0});groups.push(m.members.slice())}});
+    groups.sort(function(a,b){return R.order.indexOf(a[0])-R.order.indexOf(b[0])});
+    groups.forEach(function(gp,k){gp.forEach(function(m){colorOf[m]=COL[k%5]})});
+  }
+  function colFor(members){if(!done||st.cut===null)return ink;var c0=colorOf[members[0]];return members.every(function(m){return colorOf[m]===c0})?c0:muted}
+
+  for(var k=0;k<shown;k++){
+    var m=R.merges[k],pa=pos[m.a],pb=pos[m.b],y=yy(m.h),latest=(k===shown-1&&mergeStep);
+    var col=latest?acc:colFor(m.members);
+    g.strokeStyle=col;g.lineWidth=latest?5:4;g.lineCap="round";
+    g.beginPath();g.moveTo(pa.x,pa.y);g.lineTo(pa.x,y);g.lineTo(pb.x,y);g.lineTo(pb.x,pb.y);g.stroke();
+    pos[m.id]={x:(pa.x+pb.x)/2,y:y};
+    if(latest){g.font="600 18px "+FONT;g.fillStyle=ink;g.textAlign="center";g.textBaseline="bottom";
+      g.lineWidth=6;g.strokeStyle=panel;g.strokeText(f2(m.h),(pa.x+pb.x)/2,y-8);g.fillText(f2(m.h),(pa.x+pb.x)/2,y-8)}
+  }
+  /* leaves */
+  R.order.forEach(function(id){var p=pos[id];
+    g.beginPath();g.arc(p.x,B,6,0,2*Math.PI);g.fillStyle=done&&st.cut!==null?colorOf[id]:ink;g.fill();
+    g.save();g.translate(p.x,B+14);g.rotate(-Math.PI/5);g.font="600 18px "+FONT;g.fillStyle=ink;g.textAlign="right";g.textBaseline="middle";g.fillText(NAMES[id],0,0);g.restore();
+  });
+  /* cut line */
+  if(done){
+    if(st.cut===null)st.cut=defaultCut(R);
+    var cy=yy(st.cut);
+    g.setLineDash([12,8]);g.strokeStyle=acc;g.lineWidth=3.5;g.beginPath();g.moveTo(L,cy);g.lineTo(Rr,cy);g.stroke();g.setLineDash([]);
+    var nCl=1+R.merges.filter(function(m){return m.h>st.cut}).length;
+    g.font="600 19px "+FONT;g.fillStyle=acc;g.textAlign="right";g.textBaseline="bottom";
+    g.lineWidth=6;g.strokeStyle=panel;var lab="cut at "+f2(st.cut)+": "+nCl+" cluster"+(nCl>1?"s":"")+"  (drag me)";
+    g.strokeText(lab,Rr-6,cy-8);g.fillText(lab,Rr-6,cy-8);
+    drawDendro.geom={yy:yy,hmax:hmax,T:T,B:B};
+  }
+}
+/* default cut: in the middle of the largest gap between merge heights */
+function defaultCut(R){var hs=[0].concat(R.merges.map(function(m){return m.h})),bi=1,bg=0;
+  for(var i=2;i<hs.length;i++){var gp=hs[i]-hs[i-1];if(gp>bg){bg=gp;bi=i}}return (hs[bi]+hs[bi-1])/2}
+
+function linkWord(){return st.link==='single'?"the smallest":(st.link==='complete'?"the largest":"the average")}
+function say(R){
+  var sc=st.scale==='orig'?" Original scales, for demonstration only: here turbidity and color score (values around 10) dominate the distances, and density (values around 1) hardly counts. Normally you standardize first.":" Standardized: every parameter now has mean 0 and SD 1, so large numbers no longer dominate. Each parameter counts the same.",P=ph();
+  if(P.t==='data')return "Five parameters, each measured in five batches. We cluster the parameters: two parameters are close if their values across the batches are similar."+sc;
+  if(P.t==='matrix')return "The Euclidean distance between every pair of parameters. The matrix is symmetric, so the lower half is enough. Next: the smallest value.";
+  if(P.t==='merge'){
+    var S=R.states[P.k],m=R.merges[P.k],lastM=P.k===R.merges.length-1;
+    return "Smallest value in the matrix: "+cnameP(S.clusters[S.best.j])+" and "+cnameP(S.clusters[S.best.i])+" ("+f2(m.h)+"). They merge: see the orange link in the dendrogram at height "+f2(m.h)+"."+
+      (lastM?" Now all parameters are in one cluster.":" Next: the new cluster needs distances to all other clusters.");
+  }
+  if(P.t==='update'){
+    var G=groupsUpdate(R,P.k),word=st.link==='single'?"smallest":(st.link==='complete'?"largest":"average");
+    var parts=G.map(function(gp){return cnameP({members:gp.B})+": "+word+" of "+gp.pairs.map(function(x){return f2(x.d)}).join(", ")+" = "+f2(linkVal(gp.pairs))});
+    var Cn=R.states[P.k+1].clusters.slice(0,-1),keep="";
+    if(Cn.length>=2)keep=" The distance between "+cnameP(Cn[0])+" and "+cnameP(Cn[1])+" ("+f2(R.states[P.k+1].M[1][0])+") stays the same: neither of them has changed.";
+    return (P.k===0?"Linkage is the rule for how we measure the distance between groups. ":"")+"The new cluster "+cnameP({members:G[0].A})+" needs a distance to every other cluster. Only pairs with one member of the new cluster count ("+st.link+" linkage, "+word+"): "+parts.join("; ")+"."+keep+" Next: the smallest value in the new matrix merges.";
+  }
+  return "The tree is complete. Move the cut line (slider or drag): everything joined below the line is one cluster. A large gap below a cut means a robust split. Single linkage merges early (the closest members count), complete late (the farthest count), average lies in between.";
+}
+
+function render(){
+  var R=cluster();
+  $("say").textContent=say(R);
+  $("scHint").textContent=st.scale==='orig'?"(large numbers dominate)":"(each parameter counts the same)";
+  var P=ph();
+  $("tTitle").textContent={data:"The data",matrix:"Distance matrix",merge:"Distance matrix: find the smallest value",update:"New distance matrix",done:"All merges"}[P.t];
+  $("tSub").textContent={data:st.scale==='orig'?"Original values.":"Standardized per parameter (mean 0, SD 1 across the batches).",matrix:"Euclidean distances between the parameters.",
+    merge:"Orange frame: the smallest value. These two merge.",update:"The two merged rows became one. Marked: the new row with the new distances.",done:"Each merge with its height in the dendrogram."}[P.t];
+  $("note").textContent="";
+  $("tTitle").style.marginTop=(P.t==='merge'||P.t==='update')?"16px":"0";
+  drawTable(R);
+  $("dSub").textContent=st.step===LAST?"Drag the orange cut line up or down.":"Height of a link = distance at which the two clusters merge.";
+  drawDendro(R);
+  drawOrig(R);drawLink(R);
+  $("lkBtn").setAttribute("aria-pressed",st.showLk?"true":"false");$("lkBtn").textContent=st.showLk?"Hide linkage comparison":"Show linkage comparison";
+  var done=st.step===LAST;$("cutCtl").hidden=!done;
+  if(done&&drawDendro.geom){var gm=drawDendro.geom;$("cut").max=gm.hmax.toFixed(2);$("cut").step=(gm.hmax/200).toFixed(3);$("cut").value=st.cut;$("cutOut").textContent=f2(st.cut)}
+  $("stepno").textContent="Step "+(st.step+1)+" of "+(LAST+1);
+  $("back").disabled=st.step===0;$("next").disabled=st.step===LAST;
+  [["lSingle","single"],["lComplete","complete"],["lAverage","average"]].forEach(function(p){$(p[0]).setAttribute("aria-pressed",st.link===p[1]?"true":"false")});
+  $("sOrig").setAttribute("aria-pressed",st.scale==='orig'?"true":"false");$("sStd").setAttribute("aria-pressed",st.scale==='std'?"true":"false");
+}
+function go(k){st.step=Math.max(0,Math.min(LAST,k));render()}
+function setLink(l){st.link=l;st.cut=null;render()}
+function setScale(s){st.scale=s;st.cut=null;render()}
+
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){st.step=0;st.link='complete';st.scale='orig';st.cut=null;render()});
+$("lSingle").addEventListener("click",function(){setLink('single')});
+$("lComplete").addEventListener("click",function(){setLink('complete')});
+$("lAverage").addEventListener("click",function(){setLink('average')});
+$("sOrig").addEventListener("click",function(){setScale('orig')});
+$("sStd").addEventListener("click",function(){setScale('std')});
+document.addEventListener("keydown",function(e){
+  if(e.key==="ArrowRight"){go(st.step+1);e.preventDefault()}
+  else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}
+  else if(st.step===LAST&&(e.key==="ArrowUp"||e.key==="ArrowDown")){var gm=drawDendro.geom;st.cut=Math.max(0,Math.min(gm.hmax,st.cut+(e.key==="ArrowUp"?1:-1)*gm.hmax/40));render();e.preventDefault()}
+});
+$("full").addEventListener("click",function(){
+  try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}
+});
+$("lkBtn").addEventListener("click",function(){st.showLk=!st.showLk;render()});
+$("cut").addEventListener("input",function(e){st.cut=+e.target.value;render()});
+/* drag the cut line */
+var cv=$("dg"),drag=false;
+function setCut(e){var gm=drawDendro.geom;if(!gm)return;var r=cv.getBoundingClientRect(),y=(e.clientY-r.top)*H/r.height;
+  st.cut=Math.max(0,Math.min(gm.hmax,(gm.B-y)/(gm.B-gm.T)*gm.hmax));render()}
+cv.addEventListener("pointerdown",function(e){if(st.step!==LAST)return;drag=true;try{cv.setPointerCapture(e.pointerId)}catch(err){}setCut(e)});
+cv.addEventListener("pointermove",function(e){if(drag)setCut(e)});
+cv.addEventListener("pointerup",function(){drag=false});cv.addEventListener("pointercancel",function(){drag=false});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+render();
+})();
+</script>
+</body>
+</html>

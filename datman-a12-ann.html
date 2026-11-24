@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neural network playground</title>
+<style>
+/* A12 v2: network empty at first, numbers appear path by path; upper path in three slower steps (z, softplus, weight);
+   softplus formula as an inset; texts coloured like the picture; "Optimal values"; inner curves on their own scale.
+   A12 v1: a tiny neural network (1 input, 2 hidden softplus nodes, 1 softplus output) fits three points
+   (0 -> 0, 0.5 -> 1, 1 -> 0). Weights as on the slides: upper path x*5.28 - 3.08, softplus, *(-6.48) (blue);
+   lower path x*11.12 + 0.64, softplus, *1.32 (green); output bias -4.41, softplus. Steps build the curve,
+   the last step is a playground with sliders and gradient descent. Link with ?step=N (1-10). Accent = FH #F6A420. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent2:#CB6413; --accent-soft:rgba(246,164,32,.22);
+  --blue:#1f5fb4; --green:#2e8b57; --red:#d7261e; --out:#F6A420;
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046; --blue:#6aa2e6; --green:#6fcf97; --red:#f0736b;}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1180px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:flex;gap:12px 20px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btns[hidden]{display:none}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button:disabled{opacity:.45;cursor:default}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.stepno{color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+.status{display:grid;grid-template-columns:1fr auto;gap:10px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:104px}
+.status p{margin:0;font-size:1.12rem;max-width:70ch}
+.status strong{font-weight:750}
+.status .cl{display:block;margin-top:8px;font-style:italic;color:var(--muted)}
+.bl{color:var(--blue);font-weight:700} .gr{color:var(--green);font-weight:700} .rd{color:var(--red);font-weight:700} .or{color:var(--accent2);font-weight:700}
+.nums{display:flex;gap:24px;flex-wrap:wrap}
+.nums div{text-align:right}
+.nums .k{color:var(--muted);font-size:.8rem;white-space:nowrap}
+.nums .v{font-size:1.4rem;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 2px}
+.card p{margin:2px 0 8px;color:var(--muted);font-size:.92rem}
+canvas{display:block;width:100%;height:auto}
+#net{aspect-ratio:600/400} #plot{aspect-ratio:600/470} #hist{aspect-ratio:600/140}
+.sl{display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;margin-top:8px}
+.sl[hidden],#histWrap[hidden]{display:none}
+.sl label{display:flex;justify-content:space-between;gap:8px;font-weight:600;font-size:.92rem}
+.sl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+.sl .b1,.sl .b2{} input[type=range]{width:100%;accent-color:var(--accent);height:22px;margin:2px 0 0}
+.sl .up label{color:var(--blue)} .sl .lo label{color:var(--green)} .sl .ou label{color:var(--accent2)}
+.tog{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.tog[hidden]{display:none}
+@media (max-width:860px){.grid.play #plotCard{order:-1}.grid,.status{grid-template-columns:1fr}.nums{justify-content:flex-start}.nums div{text-align:left}.sl{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Neural network playground</h1>
+    <p class="sub">Two hidden nodes, seven numbers, one bendy curve.</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="btns" id="playBtns" hidden>
+    <button id="train" type="button">Train</button>
+    <button id="rand" type="button">Random start</button>
+    <button id="slide" type="button">Optimal values</button>
+  </div>
+</div>
+
+<div class="status">
+  <p id="say"></p>
+  <div class="nums">
+    <div><div class="k">at x = 0</div><div class="v" id="y0">–</div></div>
+    <div><div class="k">at x = 0.5</div><div class="v" id="y5">–</div></div>
+    <div><div class="k">at x = 1</div><div class="v" id="y1">–</div></div>
+    <div><div class="k">SSR</div><div class="v" id="ssr">–</div></div>
+  </div>
+</div>
+
+<div class="grid" id="grid">
+  <div class="card">
+    <h2>The network</h2>
+    <p id="netSub">Arrows: × weight. Nodes: + bias, then the activation function softplus.</p>
+    <canvas id="net" width="600" height="400" aria-label="Network diagram"></canvas>
+    <div class="sl" id="sliders" hidden></div>
+    <div id="histWrap" hidden><p style="margin:10px 0 2px">SSR during training</p><canvas id="hist" width="600" height="140" aria-label="SSR during training"></canvas></div>
+  </div>
+  <div class="card" id="plotCard">
+    <h2 id="title"></h2>
+    <p id="plotSub"></p>
+    <canvas id="plot" width="600" height="470" aria-label="Curves and data points"></canvas>
+    <div id="innerWrap" hidden><p style="margin:10px 0 2px">Inside the network (own scale): <span class="bl">blue</span> = upper node × weight, <span class="gr">green</span> = lower node × weight, dashed <span class="rd">red</span> = blue + green + output bias (before softplus)</p><canvas id="inner" width="600" height="330" style="aspect-ratio:600/330" aria-label="Inner curves"></canvas></div>
+    <div class="tog" id="tog" hidden><span style="font-weight:600;color:var(--muted)">Inner curves:</span><button id="inOff" type="button" aria-pressed="true">hide</button><button id="inOn" type="button" aria-pressed="false">show</button></div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var LAST=9,W=600,H=470;
+var DUR={2:1800,3:2200,4:2200,5:5200,6:2000,7:1800,8:2200};
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+var U=1;function fs(n){return Math.round(n*U)}
+function setU(){U=Math.max(1,Math.min(1.6,560/Math.max(320,Math.min(window.innerWidth,900)-40)))}
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function f2(x){return (Math.abs(x)<0.005?0:x).toFixed(2)}
+function lerp(a,b,t){return a+(b-a)*t} function ease(t){t=Math.max(0,Math.min(1,t));return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2}
+function seg(t,a,b){return ease((t-a)/(b-a))}
+function makeRng(seed){var s=seed|0;return function(){s=s+0x6D2B79F5|0;var t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/* ---------- the network ---------- */
+var XS=[0,0.5,1],YS=[0,1,0];
+var OPT={w1:5.28,b1:-3.08,w2:11.12,b2:0.64,w3:-6.48,w4:1.32,b3:-4.41};
+var KEYS=[["w1","upper: x → node 1, weight",-15,15,"up"],["b1","upper: bias node 1",-8,8,"up"],["w3","upper: node 1 → output, weight",-12,12,"up"],
+          ["w2","lower: x → node 2, weight",-15,15,"lo"],["b2","lower: bias node 2",-8,8,"lo"],["w4","lower: node 2 → output, weight",-12,12,"lo"],["b3","output: bias",-8,8,"ou"]];
+function sp(z){return z>30?z:Math.log1p(Math.exp(z))} function sg(z){return 1/(1+Math.exp(-z))}
+function fwd(p,x){var z1=p.w1*x+p.b1,z2=p.w2*x+p.b2,h1=sp(z1),h2=sp(z2),s=p.w3*h1+p.w4*h2+p.b3;return {z1:z1,z2:z2,h1:h1,h2:h2,s:s,y:sp(s)}}
+function ssr(p){return XS.reduce(function(a,x,i){var e=fwd(p,x).y-YS[i];return a+e*e},0)}
+function grad(p){var g={w1:0,b1:0,w2:0,b2:0,w3:0,w4:0,b3:0};XS.forEach(function(x,i){var f=fwd(p,x),d=2*(f.y-YS[i])*sg(f.s);
+  g.b3+=d;g.w3+=d*f.h1;g.w4+=d*f.h2;var d1=d*p.w3*sg(f.z1),d2=d*p.w4*sg(f.z2);g.w1+=d1*x;g.b1+=d1;g.w2+=d2*x;g.b2+=d2});return g}
+var SEEDS=[4,7,1,12,13,22,14,16,20,23],LR=0.15,MAXIT=4000,PLAY=9;
+
+var st={step:0,t:1,anim:null,p:Object.assign({},OPT),inner:false,hist:[],train:null,si:0,prev:0};
+
+/* ---------- plot ---------- */
+var YR={0:[-0.5,1.5],1:[-0.5,1.5],2:[-4,3.5],3:[-4,3.5],4:[-16,3.5],5:[-16,17],6:[-6,8],7:[-6,8],8:[-0.5,1.5],9:[-0.5,1.5]};
+function yrange(t){var s=st.step,a=YR[s];if(t<1&&st.prev===s-1&&YR[st.prev]){var b=YR[st.prev],e=ease(t);return [lerp(b[0],a[0],e),lerp(b[1],a[1],e)]}return a}
+function axes(g,L,R,T,B,yr,px,py){var ink=css("--ink"),muted=css("--muted"),line=css("--line");
+  var span=yr[1]-yr[0],stp=span>40?10:(span>20?5:(span>8?2:(span>3?1:0.5)));
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();for(var x=0;x<=1.0001;x+=0.25){g.moveTo(px(x),T);g.lineTo(px(x),B)}
+  for(var y=Math.ceil(yr[0]/stp)*stp;y<=yr[1]+1e-9;y+=stp){g.moveTo(L,py(y));g.lineTo(R,py(y))}g.stroke();
+  g.strokeStyle=muted;g.lineWidth=2;if(yr[0]<0&&yr[1]>0){g.beginPath();g.moveTo(L,py(0));g.lineTo(R,py(0));g.stroke()}g.strokeRect(L,T,R-L,B-T);
+  g.font=fs(15)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";for(x=0;x<=1.0001;x+=0.25)g.fillText(String(+x.toFixed(2)),px(x),B+6);
+  g.textAlign="right";g.textBaseline="middle";for(y=Math.ceil(yr[0]/stp)*stp;y<=yr[1]+1e-9;y+=stp)g.fillText(String(+y.toFixed(1)),L-6,py(y));
+  g.font="600 "+fs(17)+"px "+FONT;g.fillStyle=ink;g.textAlign="center";g.textBaseline="top";g.fillText("x",(L+R)/2,B+8+fs(16))}
+function box(g,lines,x,y,maxW){var panel=css("--panel"),ink=css("--ink");var sz=fs(15);g.font="600 "+sz+"px "+FONT;
+  lines.forEach(function(l){while(g.measureText(l[0]).width>maxW&&sz>10){sz--;g.font="600 "+sz+"px "+FONT}});
+  lines.forEach(function(l,i){g.font=(l[2]||"600 ")+sz+"px "+FONT;g.textAlign="left";g.textBaseline="top";g.lineWidth=6;g.strokeStyle=panel;g.strokeText(l[0],x,y+i*(sz+6));g.fillStyle=l[1]||ink;g.fillText(l[0],x,y+i*(sz+6))})}
+function drawPlot(t){
+  setU();var c=$("plot"),g=c.getContext("2d"),s=st.step,p=st.p;
+  var ink=css("--ink"),muted=css("--muted"),blue=css("--blue"),green=css("--green"),red=css("--red"),out=css("--out"),panel=css("--panel"),acc2=css("--accent2");
+  var L=Math.round(30+fs(15)*2.4),R=W-16,T=16,B=H-Math.round(26+fs(15)*2.2),yr=yrange(t);
+  function px(x){return L+x*(R-L)} function py(y){return B-(y-yr[0])/(yr[1]-yr[0])*(B-T)}
+  g.fillStyle=panel;g.fillRect(0,0,W,H);axes(g,L,R,T,B,yr,px,py);
+  g.save();g.translate(12+fs(7),(T+B)/2);g.rotate(-Math.PI/2);g.font="600 "+fs(17)+"px "+FONT;g.fillStyle=ink;g.textAlign="center";g.textBaseline="middle";g.fillText("y",0,0);g.restore();
+  function curve(f,col,w,dash,alpha){g.save();g.beginPath();g.rect(L,T,R-L,B-T);g.clip();g.globalAlpha=alpha===undefined?1:alpha;g.beginPath();
+    for(var i=0;i<=200;i++){var x=i/200,v=f(x);v=Math.max(yr[0]-50,Math.min(yr[1]+50,v));if(i)g.lineTo(px(x),py(v));else g.moveTo(px(x),py(v))}
+    g.strokeStyle=col;g.lineWidth=w;g.setLineDash(dash||[]);g.lineJoin="round";g.stroke();g.restore()}
+  var z1=function(x){return p.w1*x+p.b1},z2=function(x){return p.w2*x+p.b2};
+  var blueF=function(x){return p.w3*sp(z1(x))},greenF=function(x){return p.w4*sp(z2(x))},sumF=function(x){return blueF(x)+greenF(x)};
+  var f0=fwd(p,0),info=[];
+  if(s===2){var e2=ease(t);curve(function(x){return lerp(p.b1,z1(x),e2)},blue,4);
+    info=[["z = x × "+f2(p.w1)+" + ("+f2(p.b1)+")",blue,"700 "],["a straight line: weight = slope, bias = shift"],["x = 0: z = 0 × "+f2(p.w1)+" + ("+f2(p.b1)+") = "+f2(f0.z1)]]}
+  if(s===3){var e3=ease(t);curve(z1,blue,2.5,[6,5],0.5);curve(function(x){return lerp(z1(x),sp(z1(x)),e3)},blue,4);
+    info=[["softplus(z) = log(1 + e^z)",blue,"700 "],["negative z → almost 0, positive z → almost z"],["x = 0: softplus("+f2(f0.z1)+") = "+f2(f0.h1)]]}
+  if(s===4){var e4=ease(t);curve(function(x){return sp(z1(x))},blue,2.5,[6,5],0.5);curve(function(x){return lerp(1,p.w3,e4)*sp(z1(x))},blue,4);
+    info=[["× ("+f2(p.w3)+")",blue,"700 "],["the weight flips the bend and stretches it"],["x = 0: "+f2(f0.h1)+" × ("+f2(p.w3)+") = "+f2(p.w3*f0.h1)]]}
+  if(s===5){curve(blueF,blue,3,[],0.5);var a=seg(t,0,0.3),bb=seg(t,0.36,0.62),cc=seg(t,0.7,0.96),ph=t<0.33?1:(t<0.66?2:3);if(t>=1)ph=3;
+    curve(function(x){var z=lerp(p.b2,z2(x),a),v=lerp(z,sp(z),bb);return lerp(1,p.w4,cc)*v},green,4);
+    info=[[ph===1?"1) z = x × "+f2(p.w2)+" + "+f2(p.b2):(ph===2?"2) softplus(z): hardly changes, z is positive":"3) × "+f2(p.w4)),green,"700 "],
+      ["x = 0: z = "+f2(f0.z2)+" → softplus "+f2(f0.h2)+" → × "+f2(p.w4)+" = "+f2(p.w4*f0.h2)]]}
+  if(s===6){var e6=ease(t);curve(blueF,blue,3,[],1-0.6*e6);curve(greenF,green,3,[],1-0.6*e6);curve(function(x){return lerp(greenF(x),sumF(x),e6)},red,4);
+    info=[["blue + green",red,"700 "],["x = 0: "+f2(p.w3*f0.h1)+" + "+f2(p.w4*f0.h2)+" = "+f2(p.w3*f0.h1+p.w4*f0.h2)]]}
+  if(s===7){var e7=ease(t);curve(sumF,red,2.5,[6,5],0.5);curve(function(x){return sumF(x)+p.b3*e7},red,4);
+    info=[["+ output bias ("+f2(p.b3)+")",red,"700 "],["x = 0: "+f2(p.w3*f0.h1+p.w4*f0.h2)+" + ("+f2(p.b3)+") = "+f2(f0.s)]]}
+  if(s===8){var e8=ease(t);curve(function(x){return fwd(p,x).s},red,2.5,[6,5],1-0.6*e8);curve(function(x){var v=fwd(p,x).s;return lerp(v,sp(v),e8)},out,5);
+    info=[["softplus at the output",acc2,"700 "],["x = 0: softplus("+f2(f0.s)+") = "+f2(f0.y)]]}
+  if(s===PLAY)curve(function(x){return fwd(p,x).y},out,5);
+  XS.forEach(function(x,i){g.beginPath();g.arc(px(x),py(YS[i]),8*Math.min(U,1.3),0,2*Math.PI);g.fillStyle=red;g.fill();g.lineWidth=2;g.strokeStyle=panel;g.stroke()});
+  if(info.length)box(g,info,L+8,T+8,R-L-16);
+}
+/* playground: the inner curves on their own scale */
+function drawInner(){
+  var c=$("inner"),g=c.getContext("2d"),p=st.p,IW=600,IH=330,panel=css("--panel"),blue=css("--blue"),green=css("--green"),red=css("--red");
+  g.fillStyle=panel;g.fillRect(0,0,IW,IH);
+  var fb=function(x){return p.w3*sp(p.w1*x+p.b1)},fg=function(x){return p.w4*sp(p.w2*x+p.b2)},fr=function(x){return fwd(p,x).s};
+  var lo=0,hi=1;for(var i=0;i<=100;i++){var x=i/100;[fb(x),fg(x),fr(x)].forEach(function(v){lo=Math.min(lo,v);hi=Math.max(hi,v)})}
+  lo=Math.max(-80,lo);hi=Math.min(80,hi);var pad=(hi-lo)*0.08;var yr=[lo-pad,hi+pad];
+  var L=Math.round(30+fs(15)*2.4),R=IW-16,T=12,B=IH-Math.round(26+fs(15)*2.2);
+  function px(x){return L+x*(R-L)} function py(y){return B-(y-yr[0])/(yr[1]-yr[0])*(B-T)}
+  axes(g,L,R,T,B,yr,px,py);
+  [[fb,blue],[fg,green],[fr,red]].forEach(function(cf){g.beginPath();for(var i=0;i<=200;i++){var x=i/200;if(i)g.lineTo(px(x),py(cf[0](x)));else g.moveTo(px(x),py(cf[0](x)))}g.strokeStyle=cf[1];g.lineWidth=3.5;g.setLineDash(cf[1]===red?[8,5]:[]);g.stroke();g.setLineDash([])});
+}
+
+/* ---------- network diagram ---------- */
+function drawNet(){
+  setU();var c=$("net"),g=c.getContext("2d"),s=st.step,p=st.p,NW=600,NH=400;
+  var ink=css("--ink"),muted=css("--muted"),line=css("--line"),blue=css("--blue"),green=css("--green"),out=css("--accent2"),panel=css("--panel");
+  g.fillStyle=panel;g.fillRect(0,0,NW,NH);
+  var N={x:[80,190],h1:[310,85],h2:[310,295],o:[520,190]},r=34;
+  /* which numbers are already known, which part is active */
+  var showUp=s>=2,showW3=s>=4,showLo=s>=5,showB3=s>=7,play=s===PLAY;
+  var act={x1:s===2,b1:s===2,h1:s===3,w3:s===4,lo:s===5,in:s===6,b3:s===7,o:s===8};
+  var anyAct=s>=2&&s<=8;
+  function alpha(on){return !anyAct||on?1:0.35}
+  function edge(a,b,col,on,lab){var A=N[a],Bp=N[b],dx=Bp[0]-A[0],dy=Bp[1]-A[1],d=Math.hypot(dx,dy),ux=dx/d,uy=dy/d;
+    var x1=A[0]+ux*r,y1=A[1]+uy*r,x2=Bp[0]-ux*(r+6),y2=Bp[1]-uy*(r+6);g.globalAlpha=alpha(on);g.strokeStyle=col;g.lineWidth=on?5:2.5;g.beginPath();g.moveTo(x1,y1);g.lineTo(x2,y2);g.stroke();
+    g.beginPath();g.moveTo(x2+ux*6,y2+uy*6);g.lineTo(x2-uy*7-ux*6,y2+ux*7-uy*6);g.lineTo(x2+uy*7-ux*6,y2-ux*7-uy*6);g.closePath();g.fillStyle=col;g.fill();
+    if(lab){var lx=(x1+x2)/2,ly=(y1+y2)/2;g.font="700 "+fs(17)+"px "+FONT;g.textAlign="center";g.textBaseline="middle";g.lineWidth=7;g.strokeStyle=panel;g.strokeText(lab,lx,ly-14);g.fillStyle=col;g.fillText(lab,lx,ly-14)}g.globalAlpha=1}
+  function node(k,col,on,kind,bias,by){var A=N[k];g.globalAlpha=alpha(on);g.beginPath();g.arc(A[0],A[1],r,0,2*Math.PI);g.fillStyle=panel;g.fill();g.lineWidth=on?5:3;g.strokeStyle=col;g.stroke();
+    if(kind==="sp"){g.beginPath();for(var i=0;i<=20;i++){var zz=-3+i*0.3,yy=sp(zz);var X_=A[0]-18+i*1.8,Y_=A[1]+12-yy*7;if(i)g.lineTo(X_,Y_);else g.moveTo(X_,Y_)}g.lineWidth=2.5;g.strokeStyle=col;g.stroke()}
+    else{g.font="700 "+fs(22)+"px "+FONT;g.fillStyle=col;g.textAlign="center";g.textBaseline="middle";g.fillText(kind,A[0],A[1])}
+    if(bias!==null){g.font="700 "+fs(16)+"px "+FONT;g.textAlign="center";g.textBaseline="middle";g.lineWidth=7;g.strokeStyle=panel;g.strokeText("bias "+f2(bias),A[0],A[1]+by);g.fillStyle=col;g.fillText("bias "+f2(bias),A[0],A[1]+by)}
+    g.globalAlpha=1}
+  edge("x","h1",blue,act.x1||play,showUp?"× "+f2(p.w1):null);edge("x","h2",green,act.lo||play,showLo?"× "+f2(p.w2):null);
+  edge("h1","o",blue,act.w3||act.in||play,showW3?"× "+f2(p.w3):null);edge("h2","o",green,act.lo||act.in||play,showLo?"× "+f2(p.w4):null);
+  node("x",ink,act.x1||act.lo||!anyAct,"x",null);node("h1",blue,act.b1||act.h1||play,"sp",showUp?p.b1:null,-52);node("h2",green,act.lo||play,"sp",showLo?p.b2:null,54);
+  node("o",out,act.in||act.b3||act.o||play,"sp",showB3?p.b3:null,-52);
+  g.font="600 "+fs(14)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";g.fillText("input",N.x[0],N.x[1]+r+8);g.fillText("output",N.o[0],N.o[1]+r+8);
+  g.fillText("hidden layer",N.h1[0],NH-26);
+  /* softplus inset */
+  if(s>=1){var ix=14,iy=NH-118,iw=150,ih=86,hl=s===1||s===3||s===8;g.globalAlpha=hl?1:0.55;g.strokeStyle=line;g.lineWidth=1.5;g.strokeRect(ix,iy,iw,ih+26);
+    g.beginPath();for(var i=0;i<=40;i++){var zz=-4+i*0.2,yy=sp(zz);var X_=ix+8+i*(iw-16)/40,Y_=iy+ih-4-yy*(ih-14)/4.1;if(i)g.lineTo(X_,Y_);else g.moveTo(X_,Y_)}g.strokeStyle=ink;g.lineWidth=2.5;g.stroke();
+    g.strokeStyle=muted;g.lineWidth=1;g.beginPath();g.moveTo(ix+8,iy+ih-4);g.lineTo(ix+iw-8,iy+ih-4);g.moveTo(ix+iw/2,iy+6);g.lineTo(ix+iw/2,iy+ih-4);g.stroke();
+    g.font="700 "+fs(13)+"px "+FONT;g.fillStyle=ink;g.textAlign="left";g.textBaseline="top";g.fillText("softplus",ix+6,iy+4);
+    var ft="f(z) = log(1 + e^z)",sz=fs(13);g.font="600 "+sz+"px "+FONT;while(g.measureText(ft).width>iw-10&&sz>9){sz--;g.font="600 "+sz+"px "+FONT}g.fillText(ft,ix+5,iy+ih+6);g.globalAlpha=1}
+}
+function drawHist(){var c=$("hist"),g=c.getContext("2d"),HW=600,HH=140,muted=css("--muted"),line=css("--line"),acc=css("--accent2"),panel=css("--panel");
+  g.fillStyle=panel;g.fillRect(0,0,HW,HH);var L=50,R=HW-10,T=10,B=HH-26,hs=st.hist;
+  g.strokeStyle=line;g.lineWidth=1;g.strokeRect(L,T,R-L,B-T);g.font="13px "+FONT;g.fillStyle=muted;g.textAlign="right";g.textBaseline="middle";
+  if(!hs.length){g.textAlign="left";g.fillText("Press Train.",L+10,(T+B)/2);return}
+  var mx=Math.max(0.1,Math.max.apply(null,hs.map(function(h){return h[1]})));g.fillText(mx.toFixed(2),L-4,T+6);g.fillText("0",L-4,B);
+  g.beginPath();hs.forEach(function(h,i){var x=L+h[0]/MAXIT*(R-L),y=B-h[1]/mx*(B-T);if(i)g.lineTo(x,y);else g.moveTo(x,y)});g.strokeStyle=acc;g.lineWidth=2.5;g.stroke();
+  g.textAlign="center";g.textBaseline="top";g.fillText("training steps (0 to "+MAXIT+")",(L+R)/2,B+6)}
+
+/* ---------- texts ---------- */
+var TITLES=["Three points","The network","Upper path: z","Upper path: softplus","Upper path: weight","Lower path","Add both paths","Add the output bias","Softplus at the output","Your turn"];
+function say(){var s=st.step,p=st.p;
+  switch(s){
+    case 0:return "Three data points: x = 0 gives y = 0, x = 0.5 gives y = 1, x = 1 gives y = 0. A straight line cannot do this, and neither can a single S-curve. How does a small neural network bend a curve so that it goes through all three points?";
+    case 1:return "The network: one input node (x), two hidden nodes ([blue] and [green]) and one output node ([orange]). Every arrow multiplies by a weight. Every node adds a bias and then applies an activation function, here softplus (small picture). The weights and biases are found by training. We look at a network that has already been trained and fill in its numbers path by path.";
+    case 2:return "Upper path [blue], first move: the input x is multiplied by the weight "+f2(p.w1)+" and the bias "+f2(p.b1)+" is added. The result is called z. For all x between 0 and 1 this gives a straight line: the weight is its slope, the bias moves it up or down.";
+    case 3:return "Second move: the [blue] node applies softplus to z. Where z is negative, softplus gives almost 0; where z is positive, it gives almost z. So the straight line gets a smooth bend.";
+    case 4:return "Third move: on the way to the output, the bend is multiplied by the weight "+f2(p.w3)+". A negative weight flips it upside down, and the size stretches it.";
+    case 5:return "Lower path [green]: the same three moves. z = x × "+f2(p.w2)+" + "+f2(p.b2)+", softplus (hardly any change, because z is positive here), then × "+f2(p.w4)+". The result is almost a straight line going up.";
+    case 6:return "The output node adds both paths: [blue] + [green] = [red]. Blue pulls down on the right, green pushes up: together they make a hump.";
+    case 7:return "Then the output node adds its bias "+f2(p.b3)+": the [red] curve moves down.";
+    case 8:return "Finally the output node applies softplus: everything below zero becomes almost zero, the hump stays. The [orange] curve goes through all three points. SSR (sum of squared residuals) = "+ssr(p).toFixed(3)+".";
+    case 9:return "Your turn: move the weights and biases and watch the [orange] curve. Train changes all 7 numbers again and again, each time a little in the direction in which the SSR gets smaller (gradient descent; backpropagation computes these directions). Random start begins somewhere else: sometimes training gets stuck with a flat curve, then a new start helps. Software does exactly this, with thousands of weights.||In the Classification Learner: Narrow, Medium, Wide, Bilayered and Trilayered Neural Network; you can set the number and size of the layers and the activation function.";
+  }}
+function paint(t){t=t.replace(/\[blue\]/g,'<span class="bl">blue</span>').replace(/\[green\]/g,'<span class="gr">green</span>').replace(/\[red\]/g,'<span class="rd">red</span>').replace(/\[orange\]/g,'<span class="or">orange</span>')
+  .replace(/input node \(x\)/,'<b>input node (x)</b>').replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");
+  var q=t.split("||");return q[0]+(q[1]?'<span class="cl">'+q[1]+'</span>':"")}
+var PSUB=["Red dots: the three data points.","Red dots: the three data points.","Blue: z, a straight line.","Dashed: z. Blue: softplus(z).","Dashed: softplus(z). Blue: after the weight.","Green: the lower path. Faint blue: upper path.",
+  "Red: blue + green.","Dashed: before the bias. Red: after the bias.","Orange: the network's prediction. Dashed red: before softplus.","Orange: the network's prediction. Red dots: the data."];
+
+/* ---------- sliders ---------- */
+function buildSliders(){var h="";KEYS.forEach(function(k){h+='<div class="'+k[4]+'"><label for="s_'+k[0]+'">'+k[1]+' <output id="o_'+k[0]+'"></output></label><input id="s_'+k[0]+'" type="range" min="'+k[2]+'" max="'+k[3]+'" step="0.01"></div>'});$("sliders").innerHTML=h;
+  KEYS.forEach(function(k){$("s_"+k[0]).addEventListener("input",function(e){stopTrain();st.p[k[0]]=+e.target.value;render()})})}
+function syncSliders(){KEYS.forEach(function(k){$("s_"+k[0]).value=st.p[k[0]];$("o_"+k[0]).textContent=f2(st.p[k[0]])})}
+
+/* ---------- render ---------- */
+function render(t){if(t===undefined)t=1;var s=st.step,p=st.p;
+  drawNet();drawPlot(t);
+  $("title").textContent=TITLES[s];$("plotSub").textContent=PSUB[s];$("say").innerHTML=paint(say());
+  var show=s>=8;[["y0",0],["y5",0.5],["y1",1]].forEach(function(a){$(a[0]).textContent=show?f2(fwd(p,a[1]).y):"–"});$("ssr").textContent=show?ssr(p).toFixed(3):"–";
+  $("stepno").textContent="Step "+(s+1)+" of "+(LAST+1);$("back").disabled=s===0;$("next").disabled=s===LAST;
+  $("playBtns").hidden=s!==PLAY;$("grid").classList.toggle("play",s===PLAY);$("sliders").hidden=s!==PLAY;$("histWrap").hidden=s!==PLAY;$("tog").hidden=s!==PLAY;
+  $("inOff").setAttribute("aria-pressed",st.inner?"false":"true");$("inOn").setAttribute("aria-pressed",st.inner?"true":"false");
+  $("innerWrap").hidden=!(s===PLAY&&st.inner);
+  $("train").textContent=st.train?"Stop":"Train";
+  if(s===PLAY){syncSliders();drawHist();if(st.inner)drawInner()}
+}
+function stopAnim(){if(st.anim){cancelAnimationFrame(st.anim);st.anim=null}}
+function stopTrain(){if(st.train){cancelAnimationFrame(st.train);st.train=null}}
+function go(n,anim){stopAnim();stopTrain();n=Math.max(0,Math.min(LAST,n));st.prev=st.step;st.step=n;
+  if(n<PLAY)st.p=Object.assign({},OPT);
+  if(anim&&n===st.prev+1&&DUR[n]){var t0=null,d=DUR[n];function tick(now){if(t0===null)t0=now;var t=Math.min(1,(now-t0)/d);render(t);st.anim=t<1?requestAnimationFrame(tick):null}st.anim=requestAnimationFrame(tick);render(0);return}
+  st.prev=n;render(1)}
+function trainRun(){if(st.train){stopTrain();render();return}
+  var it=st.hist.length?st.hist[st.hist.length-1][0]:0;if(it>=MAXIT||!st.hist.length){st.hist=[[0,ssr(st.p)]];it=0}
+  function tick(){for(var k=0;k<40&&it<MAXIT;k++){var g=grad(st.p);for(var q in st.p){var d=Math.max(-10,Math.min(10,g[q]));st.p[q]-=LR*d}it++}
+    var e=ssr(st.p);st.hist.push([it,e]);render();if(it<MAXIT&&e>0.0015)st.train=requestAnimationFrame(tick);else{st.train=null;render()}}
+  st.train=requestAnimationFrame(tick);render()}
+function randomStart(){stopTrain();var r=makeRng(SEEDS[st.si%SEEDS.length]);st.si++;function u(){return r()*4-2}
+  st.p={w1:u()*2,b1:u(),w2:u()*2,b2:u(),w3:u()*2,w4:u()*2,b3:u()};st.hist=[];render()}
+
+/* ---------- controls ---------- */
+buildSliders();
+$("train").addEventListener("click",trainRun);
+$("rand").addEventListener("click",randomStart);
+$("slide").addEventListener("click",function(){stopTrain();st.p=Object.assign({},OPT);st.hist=[];render()});
+$("inOff").addEventListener("click",function(){st.inner=false;render()});
+$("inOn").addEventListener("click",function(){st.inner=true;render()});
+$("next").addEventListener("click",function(){go(st.step+1,true)});
+$("back").addEventListener("click",function(){go(st.step-1,false)});
+$("reset").addEventListener("click",function(){st.hist=[];st.si=0;st.inner=false;go(0,false)});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){if(st.step<LAST)go(st.step+1,true);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1,false);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+var lastW=window.innerWidth;window.addEventListener("resize",function(){if(window.innerWidth===lastW)return;lastW=window.innerWidth;render()});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",function(){render()});
+var m=(location.search+location.hash).match(/step=(\d+)/);go(m?Math.max(1,Math.min(LAST+1,+m[1]))-1:0,false);
+})();
+</script>
+</body>
+</html>
