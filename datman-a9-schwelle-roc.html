@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- v3 (26.11.2026): American spelling in all visible texts (neighbor, color, center, gray). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -354,7 +355,7 @@ function render(){
   $("dataBox").hidden=!(s===6||s===8||s===9);$("dSmall").setAttribute("aria-pressed",st.big?"false":"true");$("dBig").setAttribute("aria-pressed",st.big?"true":"false");
   var showRoc=s===4||s===5||s===6||s===8||s===9;$("rCard").hidden=!showRoc;$("grid").className=showRoc?"grid":"grid one";
   $("sc").style.touchAction=(s===3||s===4||s===5||s===6||s===8||s===9)?"none":"pan-y";
-  $("rocNote").textContent=s===5?"Thick blue: the selected model. Grey: the other two. Orange: the current cut-off.":"Each cut-off gives one point. Orange: the current cut-off.";
+  $("rocNote").textContent=s===5?"Thick blue: the selected model. Gray: the other two. Orange: the current cut-off.":"Each cut-off gives one point. Orange: the current cut-off.";
   renderMatrix();drawStrip();if(showRoc&&!st.sweep)drawRoc();
 }
 /* prevalence slider: log scale 0.01 % ... 50 % */

@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- v4 (26.11.2026): American spelling in all visible texts (neighbor, color, center, gray). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -280,11 +281,11 @@ function say(s){
   switch(s.phase){
     case 'data': return DS==='clear'?"60 samples with two variables. Are there groups? Unlike hierarchical clustering, k-means needs the number of clusters k before it starts. Here k = "+k+". Press Next.":
       "Another 60 samples, spread evenly: no real groups. What does k-means do with k = "+k+"? Press Next.";
-    case 'init': return "Step 1: place "+k+" centroid"+(k>1?"s":"")+" (diamonds) at random. A centroid is the centre of a cluster. Here they start on randomly chosen samples.";
+    case 'init': return "Step 1: place "+k+" centroid"+(k>1?"s":"")+" (diamonds) at random. A centroid is the center of a cluster. Here they start on randomly chosen samples.";
     case 'assign':
-      if(!s.prevA)return "Step 2: each sample joins its nearest centroid (Euclidean distance). The circled sample: the solid line is the shortest, so it gets that colour.";
+      if(!s.prevA)return "Step 2: each sample joins its nearest centroid (Euclidean distance). The circled sample: the solid line is the shortest, so it gets that color.";
       return "Step 2 again: reassign every sample to its nearest centroid. "+s.changed+" sample"+(s.changed===1?"":"s")+" changed cluster.";
-    case 'move': return "Step 3: each centroid moves to the mean of its samples (the centre of its colour).";
+    case 'move': return "Step 3: each centroid moves to the mean of its samples (the center of its color).";
     case 'done':
       var w=wcss(s.C,s.A),best=ELBOW[k-1],worse=w>best*1.02;
       return "No sample changes cluster any more: converged after "+s.round+" round"+(s.round>1?"s":"")+". WCSS = "+f1(w)+" (total spread within the clusters: squared distances of all samples to their own centroid, added up). "+
@@ -305,7 +306,7 @@ function render(t){
   $("nW").textContent=s.A?f1(wcss(s.C,s.A)):"–";
   var titles={data:"The data",init:"Random start",assign:"Assign to the nearest centroid",move:"Move the centroids",done:"Converged"};
   $("lTitle").textContent=titles[s.phase];
-  $("lSub").textContent=s.phase==='data'?"60 samples, two variables.":"Diamonds: centroids. Colour: cluster.";
+  $("lSub").textContent=s.phase==='data'?"60 samples, two variables.":"Diamonds: centroids. Color: cluster.";
   $("back").disabled=st.hist.length<=1;
   $("next").disabled=s.phase==='done';
   $("run").disabled=s.phase==='done';

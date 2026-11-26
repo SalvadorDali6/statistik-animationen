@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- v4 (26.11.2026): American spelling in all visible texts (neighbor, color, center, gray). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -298,7 +299,7 @@ function likStr(a,b){var L=Math.exp(loglik(a,b));return L<0.0001?L.toExponential
 function counts(){var tp=0,fp=0,tn=0,fn=0;P.forEach(function(p){var c=sig(st.b0+st.b1*p.x)>=0.5;if(p.y){if(c)tp++;else fn++}else{if(c)fp++;else tn++}});return {tp:tp,fp:fp,tn:tn,fn:fn}}
 function noteP(){var s=st.step;if(st.sel!==null&&s>=4){var p=P[st.sel],z=st.b0+st.b1*p.x,q=sig(z);
     return "Person with "+p.x+" mg/ml ("+(p.y?"sick":"healthy")+"): log(odds) = "+f2(z)+" → p = "+q.toFixed(2)+(p.y?"":", 1 − p = "+(1-q).toFixed(2))+"."}
-  if(s===0)return "The 12 people from the slides. Red: sick, blue: healthy.";if(s===1)return "Grey zones: impossible probabilities.";
+  if(s===0)return "The 12 people from the slides. Red: sick, blue: healthy.";if(s===1)return "Gray zones: impossible probabilities.";
   if(s>=4)return "Hollow points: the probability the curve gives each person. Tap a person.";return "Orange: one possible S-curve."}
 function noteL(){var s=st.step;if(s===3)return "Orange labels: which p belongs to which log(odds).";return "Every person sits at +∞ (sick) or −∞ (healthy). Hollow points: where the line puts them."}
 

@@ -1,9 +1,10 @@
 <!DOCTYPE html>
+<!-- v4 (26.11.2026): American spelling in all visible texts (neighbor, color, center, gray). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>k-nearest neighbours (kNN)</title>
+<title>k-nearest neighbors (kNN)</title>
 <style>
 /* A11 v3: standardized mode shows the axes as z-values (1 = one standard deviation).
    A11 v2: k at most 19 with 20 known patients (no 10 : 10 tie), text on very large k.
@@ -64,7 +65,7 @@ canvas.free{touch-action:none}
 <body>
 <div class="head">
   <div>
-    <h1>k-nearest neighbours (kNN)</h1>
+    <h1>k-nearest neighbors (kNN)</h1>
     <p class="sub">Classify a new patient by asking the closest known patients.</p>
   </div>
   <button id="full" type="button">Fullscreen</button>
@@ -78,7 +79,7 @@ canvas.free{touch-action:none}
     <span class="stepno" id="stepno"></span>
   </div>
   <div class="ctl" id="kBox" hidden>
-    <label for="k">Number of neighbours k <output id="kOut"></output></label>
+    <label for="k">Number of neighbors k <output id="kOut"></output></label>
     <input id="k" type="range" min="1" max="29" step="2" value="5">
   </div>
   <div class="seg" id="stdBox" hidden>
@@ -202,16 +203,16 @@ function eig(G){var tr=G.a+G.c,det=G.a*G.c-G.b*G.b,d=Math.sqrt(Math.max(0,tr*tr/
   if(Math.abs(G.b)>1e-12)v1=[l1-G.c,G.b];else v1=G.a>=G.c?[1,0]:[0,1];var n=Math.hypot(v1[0],v1[1]);v1=[v1[0]/n,v1[1]/n];return {l1:l1,l2:Math.max(l2,1e-12),v1:v1,v2:[-v1[1],v1[0]]}}
 
 /* ---------- texts ---------- */
-var TITLES=["Sick or healthy?","Ask the 5 nearest neighbours","Move the patient, change k","Careful with units","Unequal groups","Mahalanobis: distance to each group","Mahalanobis and outliers"];
+var TITLES=["Sick or healthy?","Ask the 5 nearest neighbors","Move the patient, change k","Careful with units","Unequal groups","Mahalanobis: distance to each group","Mahalanobis and outliers"];
 function say(){
   var s=st.step,D=data(),sc=scales(D),q=st.p;
   switch(s){
-    case 0:return "A new patient comes in: blood pressure 130 mmHg, body temperature 37.0 °C. We already know 20 patients: 10 healthy (blue) and 10 sick (red). Is the new patient sick or healthy? Idea: look at the most similar known patients, the nearest neighbours.";
+    case 0:return "A new patient comes in: blood pressure 130 mmHg, body temperature 37.0 °C. We already know 20 patients: 10 healthy (blue) and 10 sick (red). Is the new patient sick or healthy? Idea: look at the most similar known patients, the nearest neighbors.";
     case 1:var v=vote(neighbours(q,D,5,sc));return "kNN with k = 5: measure the distance from the new patient to every known patient, sort, and take the 5 closest. They vote: "+v.sick+" sick, "+v.healthy+" healthy. The majority wins, so the new patient is called "+(v.call?"sick":"healthy")+". No model is built, the known data are the model.";
-    case 2:return "Drag the new patient and change k. The coloured background shows how a new patient on each spot would be called. With k = 1 a single patient decides, and the border becomes jumpy (sensitive to outliers). A larger k gives a smoother border. Use an odd k, so there is no tie. But if k gets close to the number of known patients (here 20), almost everybody votes, and the call hardly depends on where the patient is any more.";
-    case 3:var r=st.std;return "Look at the shape of the neighbourhood (dashed): "+(r?"now it is a round region.":"in original units it is a tall, thin strip. 1 °C counts as much as 1 mmHg, but temperatures differ by less than 1 °C, blood pressures by about 15 mmHg. The temperature hardly counts.")+" Switch to standardized: from each value the mean is subtracted and the result is divided by the standard deviation (z-value). Look at the axes: the points stay where they are, but now one step on each axis is one standard deviation, and both variables count equally. Other neighbours are chosen; with k = 1 the call even flips (original units: sick, standardized: healthy). **Standardize when variables have different units.**||In the Classification Learner, KNN has the option Standardize data.";
-    case 4:var v4=vote(neighbours(q,D,st.k,sc));return "Now 30 sick and only 10 healthy patients (standardized). The new patient is closer to the centre of the healthy group, but there are simply more sick patients around: with k = "+st.k+": "+v4.sick+" sick, "+v4.healthy+" healthy. Push k up: from k = 21 the bigger group always wins, wherever the patient is.";
-    case 5:var GH=group(D,0),GS=group(D,1);return "A different idea: measure the distance to the centre of each group (diamonds), in units of that group's own spread (Mahalanobis distance). The ellipses contain 95 % of each group. The new patient is closer to the sick group in plain distance, but lies inside the healthy ellipse: Mahalanobis distance "+f2(md(q,GH))+" to healthy, "+f2(md(q,GS))+" to sick, so healthy. Drag the patient.";
+    case 2:return "Drag the new patient and change k. The colored background shows how a new patient on each spot would be called. With k = 1 a single patient decides, and the border becomes jumpy (sensitive to outliers). A larger k gives a smoother border. Use an odd k, so there is no tie. But if k gets close to the number of known patients (here 20), almost everybody votes, and the call hardly depends on where the patient is any more.";
+    case 3:var r=st.std;return "Look at the shape of the neighborhood (dashed): "+(r?"now it is a round region.":"in original units it is a tall, thin strip. 1 °C counts as much as 1 mmHg, but temperatures differ by less than 1 °C, blood pressures by about 15 mmHg. The temperature hardly counts.")+" Switch to standardized: from each value the mean is subtracted and the result is divided by the standard deviation (z-value). Look at the axes: the points stay where they are, but now one step on each axis is one standard deviation, and both variables count equally. Other neighbors are chosen; with k = 1 the call even flips (original units: sick, standardized: healthy). **Standardize when variables have different units.**||In the Classification Learner, KNN has the option Standardize data.";
+    case 4:var v4=vote(neighbours(q,D,st.k,sc));return "Now 30 sick and only 10 healthy patients (standardized). The new patient is closer to the center of the healthy group, but there are simply more sick patients around: with k = "+st.k+": "+v4.sick+" sick, "+v4.healthy+" healthy. Push k up: from k = 21 the bigger group always wins, wherever the patient is.";
+    case 5:var GH=group(D,0),GS=group(D,1);return "A different idea: measure the distance to the center of each group (diamonds), in units of that group's own spread (Mahalanobis distance). The ellipses contain 95 % of each group. The new patient is closer to the sick group in plain distance, but lies inside the healthy ellipse: Mahalanobis distance "+f2(md(q,GH))+" to healthy, "+f2(md(q,GS))+" to sick, so healthy. Drag the patient.";
     case 6:var GH6=group(D,0),GS6=group(D,1),c6=md(q,GS6)<md(q,GH6);return "One extreme outlier in the healthy group (141 mmHg) stretches the healthy ellipse far to the right. The new patient sits right next to the sick group, yet is called "+(c6?"sick":"healthy")+" (Mahalanobis distance "+f2(md(q,GH6))+" to healthy, "+f2(md(q,GS6))+" to sick). Switch the outlier off and on. **Mahalanobis is sensitive to outliers. Try both distances and compare them with cross-validation.**";
   }
 }
@@ -222,7 +223,7 @@ function nums(){var s=st.step,D=data(),sc=scales(D),q=st.p;
 }
 function paint(t){t=t.replace(/\b(sick|red)\b/g,'<b class="r">$1</b>').replace(/\b(healthy|blue)\b/g,'<b class="b">$1</b>').replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");var p=t.split("||");return p[0]+(p[1]?'<span class="cl">'+p[1]+'</span>':"")}
 function legend(){var s=st.step;var L='<b class="b">●</b> healthy &nbsp; <b class="r">●</b> sick &nbsp; ★ new patient';
-  if(s>=1&&s<=4)L+=' &nbsp; ◯ neighbours';if(s>=2)L+=' &nbsp; background: how a new patient would be called';if(s>=5)L+=' &nbsp; ◆ group centre, ellipse = 95 % of the group';if(s>=2)L+=' &nbsp; · drag the patient';return L}
+  if(s>=1&&s<=4)L+=' &nbsp; ◯ neighbors';if(s>=2)L+=' &nbsp; background: how a new patient would be called';if(s>=5)L+=' &nbsp; ◆ group center, ellipse = 95 % of the group';if(s>=2)L+=' &nbsp; · drag the patient';return L}
 
 /* ---------- render ---------- */
 function render(){

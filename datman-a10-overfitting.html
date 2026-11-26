@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- v2 (26.11.2026): American spelling in all visible texts (neighbor, color, center, gray). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -266,7 +267,7 @@ function say(){
     case 1:return "Think of the data as a bank account: 50 points = 50 degrees of freedom (df). Every parameter of a model costs 1 df. A straight line (intercept and slope) costs 2 df, so 48 df are left over to check the model.";
     case 2:return "Now imagine we had measured only 2 points. A straight line goes exactly through both: a perfect fit. But the account is empty, 0 df are left over. There is nothing left to check whether the line is any good.";
     case 3:return "Here are the other 48 points. The “perfect” line misses most of them: it fitted the 2 points only by chance. **A perfect fit on the data you trained with proves nothing.**";
-    case 4:return "So before we start, we split the account into three pots: 30 points to train the model (orange), 10 points to validate it (blue squares) and 10 points for the final test (grey), locked in the vault. The straight line is fitted to the training points only. Typical error: training "+f2(e.tr)+", validation "+f2(e.va)+".";
+    case 4:return "So before we start, we split the account into three pots: 30 points to train the model (orange), 10 points to validate it (blue squares) and 10 points for the final test (gray), locked in the vault. The straight line is fitted to the training points only. Typical error: training "+f2(e.tr)+", validation "+f2(e.va)+".";
     case 5:return "Make the model more flexible with the slider (a polynomial of higher degree, each degree costs 1 df more). The training error keeps falling, the curve follows every point. The validation error first falls, then rises again: the model starts to learn the noise. **This is overfitting.** Now: degree "+st.deg+", training "+f2(e.tr)+", validation "+f2(e.va)+".";
     case 6:return "Choose the model with the lowest validation error: degree "+BEST+" (validation error "+f2(ERR[BEST-1].va)+"). Simpler models miss the shape of the data (underfitting), more flexible ones learn the noise (overfitting). Because we used the validation data to choose, they are no longer completely new.";
     case 7:var b=ERR[BEST-1];
@@ -277,8 +278,8 @@ function say(){
 function paint(t){t=t.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");var p=t.split("||");return p[0]+(p[1]?'<span class="cl">'+p[1]+'</span>':"")}
 function note(){var s=st.step;
   if(s<=3)return "";
-  if(s===8)return st.fold>=0?"Fold "+(st.fold+1)+" of 5: blue squares = validation block, orange = training. Grey triangles: test data, still locked.":"Grey dots: the 40 points outside the vault. Curve: the model on all 40 points. Grey triangles: test data.";
-  return "Orange: training points. Blue squares: validation points, dashed: their errors. Grey triangles: test data"+(s===7?" (now opened).":" (locked).");
+  if(s===8)return st.fold>=0?"Fold "+(st.fold+1)+" of 5: blue squares = validation block, orange = training. Gray triangles: test data, still locked.":"Gray dots: the 40 points outside the vault. Curve: the model on all 40 points. Gray triangles: test data.";
+  return "Orange: training points. Blue squares: validation points, dashed: their errors. Gray triangles: test data"+(s===7?" (now opened).":" (locked).");
 }
 
 /* ---------- render ---------- */

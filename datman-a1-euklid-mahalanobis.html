@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- v5 (26.11.2026): American spelling in all visible texts (neighbor, color, center, gray). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -71,7 +72,7 @@ td.nm{font-size:1rem;white-space:nowrap}
 <div class="head">
   <div>
     <h1>Euclidean vs. Mahalanobis distance</h1>
-    <p class="q">Two new samples are equally far from the centre of our data. Are they equally unusual?</p>
+    <p class="q">Two new samples are equally far from the center of our data. Are they equally unusual?</p>
   </div>
   <button id="full" type="button">Fullscreen</button>
 </div>
@@ -243,9 +244,9 @@ function outTxt(){
 function say(){
   var A=st.A,B=st.B,inside=X.filter(function(p){return md(p)<=K95}).length;
   switch(st.step){
-    case 0:return "Each grey dot is one sample, measured on two variables x1 and x2. The two move together (correlation ρ = "+f(st.rho,2)+"). The blue cross is the centroid: the average point, made of the mean of x1 and the mean of x2.";
+    case 0:return "Each gray dot is one sample, measured on two variables x1 and x2. The two move together (correlation ρ = "+f(st.rho,2)+"). The blue cross is the centroid: the average point, made of the mean of x1 and the mean of x2.";
     case 1:return "Two new samples. A (red) lies along the cloud, B (green) lies across it. Measured with a ruler (Euclidean distance, ED), both are equally far from the centroid: ED = "+f(ed(A),2)+". Yet B clearly does not fit the cloud.";
-    case 2:return "The Mahalanobis distance (MD) measures in the shape of the cloud. Each coloured ellipse has the shape of the cloud and runs through one sample. Along the cloud a step counts as small: A has MD = "+f(md(A),2)+". Across the cloud the same step counts as big: B has MD = "+f(md(B),2)+".";
+    case 2:return "The Mahalanobis distance (MD) measures in the shape of the cloud. Each colored ellipse has the shape of the cloud and runs through one sample. Along the cloud a step counts as small: A has MD = "+f(md(A),2)+". Across the cloud the same step counts as big: B has MD = "+f(md(B),2)+".";
     case 3:return "When is a sample unusual? With 2 variables and 5 %, the chi² table gives 5.991, so the limit is MD = √5.991 = 2.45. The ellipse should hold about 95 % of the samples. Here "+inside+" of "+N+" are inside. Orange dots lie outside: outliers. B (MD "+f(md(B),2)+") is an outlier, A is not.";
     default:return (st.lvl===99.9?"99.9 % ellipse: the chi² table gives 13.816, so MD = √13.816 = 3.72. Only very unusual samples lie outside. ":"")+outTxt()+"Free mode: drag A and B, change the correlation, switch the shapes on and off. With ρ\u00a0=\u00a00 the cloud is round, and ED and MD are almost the same.";
   }
