@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logistic regression: the best S-curve</title>
+<style>
+/* A13 v3 (26.11.2026): "log(odds) of being sick", new paragraph for the probe part in step 8.
+   A13 v2 (26.11.2026): sliders stay in step 7 (Find maximum can be repeated), equation in the log(odds) plot,
+   slope always 0.298, formulas typeset as formulas (HTML, works offline), legend red/blue.
+   A13 v1: logistic regression with the 12 people of the confusion-matrix/ROC animation (A9) and the ANN slides.
+   sick 7.5 10.7 11.1 21.4 25 30, healthy 3 5 6.8 8 11 13 (biomarker in mg/ml).
+   Maximum likelihood: b0 = -3.3154, b1 = 0.29791 (SE 2.153 / 0.206), L = 0.00457, log L = -5.389.
+   Steps: data -> straight line fails -> S-curve -> log(odds) axis -> try a line -> likelihood -> find maximum
+   -> reading the result (odds ratio) -> cut-off p = 0.5 -> free mode. Link with ?step=N (1-10). Accent = FH #F6A420.
+   Replaces the click slides of the log-regression chapter (logit scale, candidate lines, back-transformation, likelihood). */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1f2328; --muted:#5b626c; --line:#dadde1;
+  --accent:#F6A420; --accent2:#CB6413; --accent3:#FFCA6C; --accent-soft:rgba(246,164,32,.22);
+  --red:#d7261e; --blue:#1f5fb4; --tred:rgba(215,38,30,.07); --tblue:rgba(31,95,180,.07); --bad:rgba(120,120,120,.10);
+  --font:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#15171a; --panel:#1e2226; --ink:#eceef0; --muted:#a3abb4; --line:#3a4046;
+    --red:#f0736b; --blue:#6aa2e6; --tred:rgba(240,115,107,.09); --tblue:rgba(106,162,230,.09); --bad:rgba(200,200,200,.08);}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:18px;line-height:1.4;padding:16px clamp(12px,3vw,36px) 20px;max-width:1180px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:1.6rem;font-weight:650;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 12px}
+.bar{display:grid;grid-template-columns:auto minmax(220px,1fr);gap:12px 28px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin-bottom:12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f2328}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.ctl[hidden],button[hidden]{display:none}
+.ctl label{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;background:var(--accent-soft);padding:0 6px;border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:4px 0 0}
+.stepno{color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+.controls{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px 28px;align-items:center}
+.status{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;padding:12px 18px;margin-bottom:12px;min-height:84px}
+.status p{margin:0;font-size:1.12rem;max-width:84ch}
+.status strong{font-weight:750}
+.status .par{display:block;margin-top:8px}
+.status .cl{display:block;margin-top:8px;font-style:italic;color:var(--muted)}
+.r{color:var(--red)} .b{color:var(--blue)}
+.mf{white-space:nowrap;font-family:"Cambria Math","Cambria",Georgia,"Times New Roman",serif;font-size:1.12em}
+.mf i{font-style:italic}
+.pa{font-size:1.9em;font-weight:300;vertical-align:-.28em;line-height:0}
+.fr{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 .12em;line-height:1.15}
+.fr>span{padding:0 .25em}
+.fr>span:first-child{border-bottom:1.5px solid currentColor}
+.mf sup{font-size:.72em;line-height:0;vertical-align:.75em}
+.leg{float:right;font-size:.9rem;font-weight:600;color:var(--muted)}
+.leg>span{margin-left:12px;white-space:nowrap}
+.leg i{display:inline-block;width:.8em;height:.8em;border-radius:50%;margin-right:5px;vertical-align:-.05em}
+.leg i.sq{border-radius:2px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 10px;min-width:0}
+.card h2{font-size:1.05rem;font-weight:650;margin:0 0 2px}
+.card p.note{margin:2px 0 8px;color:var(--muted);font-size:.92rem;min-height:1.3em}
+canvas{display:block;width:100%;height:auto}
+#cp,#cl{aspect-ratio:600/430;touch-action:pan-y}
+#cb{aspect-ratio:1000/250}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid.one{grid-template-columns:minmax(0,660px);justify-content:center}
+.lk{display:flex;flex-wrap:wrap;gap:6px 22px;align-items:baseline;margin:2px 0 6px;font-variant-numeric:tabular-nums}
+.lk b{font-size:1.2rem}
+.lk .best{background:var(--accent-soft);border-radius:6px;padding:0 6px}
+#bCard{margin-top:12px}
+@media (max-width:860px){.bar,.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <h1>Logistic regression: the best S-curve</h1>
+    <p class="sub">How likely is a person sick, given the biomarker? And which curve fits our data best?</p>
+  </div>
+  <button id="full" type="button">Fullscreen</button>
+</div>
+
+<div class="bar">
+  <div class="btns">
+    <button id="back" type="button">Back</button>
+    <button id="next" type="button" class="primary">Next</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="btns">
+    <button id="fit" type="button" hidden>Find maximum</button>
+    <button id="rand" type="button" hidden>Random line</button>
+  </div>
+  <div class="controls">
+    <div class="ctl" id="b0Box"><label for="b0">Intercept <output id="b0Out"></output></label>
+      <input id="b0" type="range" min="-8" max="4" step="0.01" value="-1"></div>
+    <div class="ctl" id="b1Box"><label for="b1">Slope (per mg/ml) <output id="b1Out"></output></label>
+      <input id="b1" type="range" min="-0.2" max="0.8" step="0.001" value="0.12"></div>
+    <div class="ctl" id="xBox"><label for="xp">Biomarker (mg/ml) <output id="xOut"></output></label>
+      <input id="xp" type="range" min="0" max="32" step="0.1" value="25"></div>
+  </div>
+</div>
+
+<div class="status"><p id="say"></p></div>
+
+<div class="grid" id="grid">
+  <div class="card">
+    <h2><span class="leg"><span><i style="background:var(--red)"></i>sick</span><span><i style="background:var(--blue)"></i>healthy</span></span><span id="tP">Probability of being sick</span></h2>
+    <p class="note" id="nP"></p>
+    <canvas id="cp" width="600" height="430" aria-label="Probability of being sick against the biomarker"></canvas>
+  </div>
+  <div class="card" id="lCard" hidden>
+    <h2>The same curve on the log(odds) axis</h2>
+    <p class="note" id="nL"></p>
+    <canvas id="cl" width="600" height="430" aria-label="log(odds) against the biomarker"></canvas>
+  </div>
+</div>
+
+<div class="card" id="bCard" hidden>
+  <h2><span class="leg"><span><i class="sq" style="background:var(--red)"></i>sick: bar = <span class="mf"><i>p</i></span></span><span><i class="sq" style="background:var(--blue)"></i>healthy: bar = <span class="mf">1 − <i>p</i></span></span></span>How likely are exactly our data under this curve?</h2>
+  <p class="note">Sick person: <span class="mf"><i>p</i></span> (how likely sick?). Healthy person: <span class="mf">1 − <i>p</i></span> (how likely healthy?). Multiplied: the likelihood.</p>
+  <div class="lk" id="lk"></div>
+  <canvas id="cb" width="1000" height="250" aria-label="Likelihood of each person"></canvas>
+</div>
+
+<script>
+(function(){
+"use strict";
+var LAST=9,W=600,H=430,BW=1000,BH=250;
+var FONT='"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+var U=1;function fs(n){return Math.round(n*U)}
+function setU(){U=Math.max(1,Math.min(1.8,560/Math.max(300,Math.min(window.innerWidth,1000)/(window.innerWidth>860?2:1)-40)))}
+var $=function(id){return document.getElementById(id)};
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function ease(t){return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2}
+function f2(x){return (x<0?"−":"")+Math.abs(x).toFixed(2)}
+function sig(z){return 1/(1+Math.exp(-z))}
+/* formulas as HTML (offline, no library) */
+function MF(x){return '<span class="mf">'+x+'</span>'}
+function FR(a,b){return '<span class="fr"><span>'+a+'</span><span>'+b+'</span></span>'}
+function EX(b,e){return b+'<sup>'+e+'</sup>'}
+var LO='log(odds)';
+function PA(x){return '<span class="pa">(</span>'+x+'<span class="pa">)</span>'}
+function f3(x){return (x<0?"−":"")+Math.abs(x).toFixed(3)}
+
+/* ---------- data and maximum likelihood ---------- */
+var SICK=[7.5,10.7,11.1,21.4,25,30],HEALTHY=[3,5,6.8,8,11,13];
+var P=[];SICK.forEach(function(v){P.push({x:v,y:1})});HEALTHY.forEach(function(v){P.push({x:v,y:0})});
+P.sort(function(a,b){return a.x-b.x});
+function loglik(b0,b1){var s=0;P.forEach(function(p){var q=sig(b0+b1*p.x);s+=Math.log(Math.max(1e-300,p.y?q:1-q))});return s}
+function newton(b0,b1){var g0=0,g1=0,h00=0,h01=0,h11=0;P.forEach(function(p){var q=sig(b0+b1*p.x),w=q*(1-q),r=p.y-q;g0+=r;g1+=r*p.x;h00+=w;h01+=w*p.x;h11+=w*p.x*p.x});
+  var det=h00*h11-h01*h01;return [b0+(h11*g0-h01*g1)/det,b1+(-h01*g0+h00*g1)/det]}
+var BEST=(function(){var b=[0,0];for(var i=0;i<60;i++)b=newton(b[0],b[1]);return b})();
+var OLS=(function(){var n=P.length,mx=0,my=0;P.forEach(function(p){mx+=p.x/n;my+=p.y/n});var sxy=0,sxx=0;P.forEach(function(p){sxy+=(p.x-mx)*(p.y-my);sxx+=(p.x-mx)*(p.x-mx)});var b=sxy/sxx;return [my-b*mx,b]})();
+var START=[-1,0.12];
+
+/* ---------- state ---------- */
+var st={step:0,b0:START[0],b1:START[1],x:25,sel:null,anim:null,fitted:false};
+
+/* ---------- drawing helpers ---------- */
+function label(g,txt,x,y,col,size,weight,align,base,maxW){var sz=fs(size||17);g.font=(weight||"600")+" "+sz+"px "+FONT;
+  if(maxW)while(g.measureText(txt).width>maxW&&sz>10){sz--;g.font=(weight||"600")+" "+sz+"px "+FONT}
+  g.textAlign=align||"left";g.textBaseline=base||"alphabetic";g.lineJoin="round";g.lineWidth=6;g.strokeStyle=css("--panel");g.strokeText(txt,x,y);g.fillStyle=col;g.fillText(txt,x,y)}
+function frameP(){return {L:Math.round(30+fs(16)*2.6),R:W-18,T:24,B:H-Math.round(26+fs(16)*2.2),y0:-0.3,y1:1.3}}
+function frameL(){return {L:Math.round(30+fs(16)*2.6),R:W-18,T:58,B:H-Math.round(60+fs(16)*2.2),y0:-6,y1:6}}
+var XMAX=32;
+function px(F,v){return F.L+v/XMAX*(F.R-F.L)} function py(F,v){return F.B-(v-F.y0)/(F.y1-F.y0)*(F.B-F.T)}
+function axesX(g,F,yAxis){var muted=css("--muted"),ink=css("--ink");g.strokeStyle=muted;g.lineWidth=2.5;g.beginPath();g.moveTo(F.L,yAxis);g.lineTo(F.R,yAxis);g.stroke();
+  g.font=fs(14)+"px "+FONT;g.fillStyle=muted;g.textAlign="center";g.textBaseline="top";
+  for(var k=0;k<=XMAX;k+=4){g.lineWidth=1.5;g.beginPath();g.moveTo(px(F,k),yAxis-4);g.lineTo(px(F,k),yAxis+4);g.stroke();g.fillText(String(k),px(F,k),yAxis+7)}
+  label(g,"biomarker (mg/ml)",(F.L+F.R)/2,yAxis+12+fs(14)+fs(10),ink,16,"600","center","middle")}
+function dot(g,x,y,col,r,hollow){g.beginPath();g.arc(x,y,r,0,2*Math.PI);if(hollow){g.fillStyle=css("--panel");g.fill();g.lineWidth=3;g.strokeStyle=col;g.stroke()}else{g.fillStyle=col;g.fill()}}
+function rDot(){return 9*Math.min(U,1.35)}
+
+/* ---------- left: probability ---------- */
+function drawP(){
+  var c=$("cp"),g=c.getContext("2d"),F=frameP(),s=st.step,ink=css("--ink"),muted=css("--muted"),line=css("--line"),red=css("--red"),blue=css("--blue"),acc=css("--accent"),acc2=css("--accent2");
+  g.fillStyle=css("--panel");g.fillRect(0,0,W,H);
+  /* impossible zone */
+  g.fillStyle=css("--bad");g.fillRect(F.L,F.T,F.R-F.L,py(F,1)-F.T);g.fillRect(F.L,py(F,0),F.R-F.L,F.B-py(F,0));
+  if(s===1){label(g,"p > 1: impossible",F.R-6,F.T+16,muted,15,"600","right","middle");label(g,"p < 0: impossible",F.R-6,F.B-14,muted,15,"600","right","middle")}
+  /* decision regions (step 8) */
+  var cutX=-st.b0/st.b1;
+  if(s===8&&st.b1>0&&cutX>0&&cutX<XMAX){g.fillStyle=css("--tblue");g.fillRect(F.L,py(F,1),px(F,cutX)-F.L,py(F,0)-py(F,1));g.fillStyle=css("--tred");g.fillRect(px(F,cutX),py(F,1),F.R-px(F,cutX),py(F,0)-py(F,1))}
+  /* grid */
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();[0,0.25,0.5,0.75,1].forEach(function(v){g.moveTo(F.L,py(F,v));g.lineTo(F.R,py(F,v))});g.stroke();
+  g.font=fs(14)+"px "+FONT;g.fillStyle=muted;g.textAlign="right";g.textBaseline="middle";[0,0.25,0.5,0.75,1].forEach(function(v){g.fillText(v===0||v===1?String(v):v.toFixed(2),F.L-8,py(F,v))});
+  g.save();g.translate(12+fs(8),(F.T+F.B)/2);g.rotate(-Math.PI/2);label(g,"p (sick)",0,0,ink,16,"600","center","middle");g.restore();
+  axesX(g,F,F.B);
+  /* straight line */
+  if(s===1){g.strokeStyle=muted;g.lineWidth=4;g.setLineDash([10,6]);g.beginPath();g.moveTo(px(F,0),py(F,OLS[0]));g.lineTo(px(F,XMAX),py(F,OLS[0]+OLS[1]*XMAX));g.stroke();g.setLineDash([]);
+    label(g,"straight line",px(F,27),py(F,OLS[0]+OLS[1]*27)+22,muted,16,"700","center","middle")}
+  /* S-curve */
+  if(s>=2){g.strokeStyle=acc;g.lineWidth=5;g.lineJoin="round";g.beginPath();for(var i=0;i<=240;i++){var x=XMAX*i/240,y=sig(st.b0+st.b1*x);if(i)g.lineTo(px(F,x),py(F,y));else g.moveTo(px(F,x),py(F,y))}g.stroke()}
+  if(s===2){var demo=[[-1.2,0.35],[-8,0.9]];demo.forEach(function(d){g.strokeStyle=css("--accent3");g.lineWidth=2.5;g.setLineDash([6,5]);g.beginPath();for(var i=0;i<=200;i++){var x=XMAX*i/200,y=sig(d[0]+d[1]*x);if(i)g.lineTo(px(F,x),py(F,y));else g.moveTo(px(F,x),py(F,y))}g.stroke();g.setLineDash([])})}
+  /* cut-off */
+  if(s===8&&st.b1>0){g.strokeStyle=acc2;g.lineWidth=2;g.setLineDash([6,5]);g.beginPath();g.moveTo(F.L,py(F,0.5));g.lineTo(F.R,py(F,0.5));g.stroke();g.setLineDash([]);
+    if(cutX>0&&cutX<XMAX){g.strokeStyle=acc2;g.lineWidth=4;g.beginPath();g.moveTo(px(F,cutX),py(F,1.08));g.lineTo(px(F,cutX),F.B);g.stroke();
+      label(g,"p = 0.5 at "+cutX.toFixed(2)+" mg/ml",px(F,cutX)+(cutX>20?-8:8),py(F,1.17),acc2,15,"700",cutX>20?"right":"left","middle");
+      label(g,"← called healthy",px(F,cutX)-8,py(F,0.62),blue,15,"700","right","middle");label(g,"called sick →",px(F,cutX)+8,py(F,0.38),red,15,"700","left","middle")}}
+  /* people */
+  var r=rDot();
+  P.forEach(function(p,i){var col=p.y?red:blue,yy=py(F,p.y),q=sig(st.b0+st.b1*p.x);
+    var off=(i>0&&P[i-1].y===p.y&&Math.abs(px(F,p.x)-px(F,P[i-1].x))<2*r)?-(p.y?-1:1)*r*1.6:0;
+    if(s>=4){g.strokeStyle=col;g.globalAlpha=0.55;g.lineWidth=2;g.setLineDash([3,4]);g.beginPath();g.moveTo(px(F,p.x),yy);g.lineTo(px(F,p.x),py(F,q));g.stroke();g.setLineDash([]);g.globalAlpha=1;
+      dot(g,px(F,p.x),py(F,q),col,r*0.62,true)}
+    var wrong=s===8&&st.b1>0&&((q>=0.5)!==(p.y===1));
+    g.globalAlpha=wrong?0.4:1;dot(g,px(F,p.x),yy+off,col,r,false);g.globalAlpha=1;
+    if(wrong){g.save();g.setLineDash([4,3]);g.beginPath();g.arc(px(F,p.x),yy+off,r*1.5,0,2*Math.PI);g.lineWidth=2.5;g.strokeStyle=col;g.stroke();g.restore()}
+    if(st.sel===i&&s>=4){g.beginPath();g.arc(px(F,p.x),py(F,q),r*1.15,0,2*Math.PI);g.lineWidth=3;g.strokeStyle=ink;g.stroke()}});
+  if(s<=1){label(g,"sick = 1",F.L+8,py(F,1)-16,red,16,"700","left","middle");label(g,"healthy = 0",F.L+8,py(F,0)+18,blue,16,"700","left","middle")}
+  /* probe */
+  if(s===7||s===9){var q=sig(st.b0+st.b1*st.x),X=px(F,st.x),Y=py(F,q);g.strokeStyle=acc2;g.lineWidth=2;g.setLineDash([5,4]);g.beginPath();g.moveTo(X,F.B);g.lineTo(X,Y);g.lineTo(F.L,Y);g.stroke();g.setLineDash([]);
+    dot(g,X,Y,acc,r*1.1,false);g.lineWidth=2.5;g.strokeStyle=ink;g.stroke();
+    label(g,"p = "+q.toFixed(2),X+(st.x>24?-14:14),Y+(q>0.85?18:-18),ink,17,"700",st.x>24?"right":"left","middle")}
+}
+
+/* ---------- right: log(odds) ---------- */
+function drawL(){
+  var c=$("cl"),g=c.getContext("2d"),F=frameL(),s=st.step,ink=css("--ink"),muted=css("--muted"),line=css("--line"),red=css("--red"),blue=css("--blue"),acc=css("--accent"),acc2=css("--accent2");
+  g.fillStyle=css("--panel");g.fillRect(0,0,W,H);
+  var yTop=F.T-30,yBot=F.B+30;
+  /* infinity rows */
+  g.fillStyle=css("--tred");g.fillRect(F.L,yTop-16,F.R-F.L,32);g.fillStyle=css("--tblue");g.fillRect(F.L,yBot-16,F.R-F.L,32);
+  label(g,"+∞",F.L-8,yTop,red,16,"700","right","middle");label(g,"−∞",F.L-8,yBot,blue,16,"700","right","middle");
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();for(var k=-6;k<=6;k+=2){g.moveTo(F.L,py(F,k));g.lineTo(F.R,py(F,k))}g.stroke();
+  g.strokeStyle=muted;g.lineWidth=1.5;g.beginPath();g.moveTo(F.L,py(F,0));g.lineTo(F.R,py(F,0));g.stroke();
+  g.font=fs(14)+"px "+FONT;g.fillStyle=muted;g.textAlign="right";g.textBaseline="middle";for(k=-6;k<=6;k+=2)g.fillText((k<0?"−":"")+Math.abs(k),F.L-8,py(F,k));
+  g.save();g.translate(12+fs(8),(F.T+F.B)/2);g.rotate(-Math.PI/2);label(g,"log(odds)",0,0,ink,16,"600","center","middle");g.restore();
+  axesX(g,F,yBot+22);
+  /* p scale next to the log(odds) axis (step 3) */
+  if(s===3){[[0,0.5],[1,0.73],[2,0.88],[3,0.95]].forEach(function(t){var y=py(F,t[0]);g.fillStyle=css("--accent-soft");
+      label(g,"p = "+t[1].toFixed(2),F.L+10,y-1,acc2,15,"700","left","middle")})}
+  /* line */
+  if(s>=3){g.save();g.beginPath();g.rect(F.L,F.T,F.R-F.L,F.B-F.T);g.clip();g.strokeStyle=acc;g.lineWidth=5;g.beginPath();g.moveTo(px(F,0),py(F,st.b0));g.lineTo(px(F,XMAX),py(F,st.b0+st.b1*XMAX));g.stroke();g.restore()}
+  if(s===8&&st.b1>0){var cx=-st.b0/st.b1;if(cx>0&&cx<XMAX){g.strokeStyle=acc2;g.lineWidth=4;g.beginPath();g.moveTo(px(F,cx),F.T);g.lineTo(px(F,cx),F.B);g.stroke();label(g,"log(odds) = 0",px(F,cx)+8,py(F,0)-16,acc2,15,"700","left","middle")}}
+  var r=rDot();
+  P.forEach(function(p,i){var col=p.y?red:blue,yy=p.y?yTop:yBot,z=st.b0+st.b1*p.x,off=(i>0&&P[i-1].y===p.y&&Math.abs(px(F,p.x)-px(F,P[i-1].x))<2*r)?r*0.9:0;
+    if(s>=4&&z>F.y0&&z<F.y1){g.strokeStyle=col;g.globalAlpha=0.5;g.lineWidth=2;g.setLineDash([3,4]);g.beginPath();g.moveTo(px(F,p.x),yy);g.lineTo(px(F,p.x),py(F,z));g.stroke();g.setLineDash([]);g.globalAlpha=1;dot(g,px(F,p.x),py(F,z),col,r*0.62,true);
+      if(st.sel===i){g.beginPath();g.arc(px(F,p.x),py(F,z),r*1.15,0,2*Math.PI);g.lineWidth=3;g.strokeStyle=ink;g.stroke()}}
+    dot(g,px(F,p.x)+off,yy,col,r*0.9,false)});
+  if(s>=4){var eq="log(odds) = "+f2(st.b0)+" + "+f3(st.b1)+" · biomarker";if(st.b1<0)eq="log(odds) = "+f2(st.b0)+" − "+f3(-st.b1)+" · biomarker";
+    label(g,eq,F.R-8,py(F,st.b1>=0?-4.6:4.6),acc2,16,"700","right","middle",F.R-F.L-16)}
+  if(s===3)label(g,"The S-curve is now a straight line",F.R-8,F.T+16,ink,16,"700","right","middle",F.R-F.L-120);
+  if(s===7||s===9){var z=st.b0+st.b1*st.x,X=px(F,st.x);if(z>F.y0&&z<F.y1){var Y=py(F,z);g.strokeStyle=acc2;g.lineWidth=2;g.setLineDash([5,4]);g.beginPath();g.moveTo(X,F.B);g.lineTo(X,Y);g.lineTo(F.L,Y);g.stroke();g.setLineDash([]);
+    dot(g,X,Y,acc,r*1.1,false);g.lineWidth=2.5;g.strokeStyle=ink;g.stroke();label(g,"log(odds) = "+f2(z),X+(st.x>22?-14:14),Y+(z>4?18:-18),ink,17,"700",st.x>22?"right":"left","middle")}}
+}
+
+/* ---------- bars: likelihood of each person ---------- */
+function drawB(){
+  var nb=window.innerWidth<620?560:1000;if(nb!==BW){BW=nb;BH=nb<1000?280:250;$("cb").width=BW;$("cb").height=BH;$("cb").style.aspectRatio=BW+"/"+BH}
+  var V=BW<1000?Math.min(U,1.5):1;
+  var c=$("cb"),g=c.getContext("2d"),ink=css("--ink"),muted=css("--muted"),line=css("--line"),red=css("--red"),blue=css("--blue");
+  g.fillStyle=css("--panel");g.fillRect(0,0,BW,BH);
+  var L=Math.round(44+16*V),R=BW-10,T=Math.round(10+16*V),B=BH-Math.round(BW<1000?14+16*V:58),n=P.length,w=(R-L)/n;
+  g.strokeStyle=line;g.lineWidth=1;g.beginPath();[0,0.5,1].forEach(function(v){var y=B-v*(B-T);g.moveTo(L,y);g.lineTo(R,y)});g.stroke();
+  g.font=Math.round(15*V)+"px "+FONT;g.fillStyle=muted;g.textAlign="right";g.textBaseline="middle";[0,0.5,1].forEach(function(v){g.fillText(String(v),L-8,B-v*(B-T))});
+  P.forEach(function(p,i){var q=sig(st.b0+st.b1*p.x),v=p.y?q:1-q,x=L+i*w,col=p.y?red:blue;
+    g.fillStyle=col;g.globalAlpha=st.sel===i?1:0.8;g.fillRect(x+w*0.18,B-v*(B-T),w*0.64,v*(B-T));g.globalAlpha=1;
+    if(st.sel===i){g.lineWidth=3;g.strokeStyle=ink;g.strokeRect(x+w*0.18,B-v*(B-T),w*0.64,v*(B-T))}
+    g.font="600 "+Math.round((BW<1000?10.5:15)*V)+"px "+FONT;g.fillStyle=ink;g.textAlign="center";g.textBaseline="bottom";g.fillText(v.toFixed(2),x+w/2,B-v*(B-T)-3);
+    g.font="700 "+Math.round((BW<1000?13:16)*V)+"px "+FONT;g.fillStyle=col;g.textBaseline="top";g.fillText(String(p.x),x+w/2,B+6);
+    if(BW>=1000){g.font="13px "+FONT;g.fillStyle=muted;g.fillText(p.y?"p":"1 − p",x+w/2,B+8+18)}});
+}
+function renderLk(){
+  var ll=loglik(st.b0,st.b1),L=Math.exp(ll),best=Math.abs(st.b0-BEST[0])<0.02&&Math.abs(st.b1-BEST[1])<0.002;
+  $("lk").innerHTML='<span>Likelihood (product): <b'+(best?' class="best"':'')+'>'+(L<0.0001?L.toExponential(1):L.toPrecision(2))+'</b></span>'+
+    '<span>log-likelihood: <b'+(best?' class="best"':'')+'>'+f2(ll)+'</b></span>'+(best?'<span><strong>maximum</strong></span>':'<span style="color:var(--muted)">maximum: '+Math.exp(loglik(BEST[0],BEST[1])).toPrecision(2)+(st.step>=6||st.fitted?"":" (still to find)")+'</span>');
+}
+
+/* ---------- texts ---------- */
+var TITLES=["One biomarker, sick or healthy","A straight line does not work","The S-curve","The trick: the log(odds) axis","Try a line","How good is this curve? The likelihood","Finding the best curve","Reading the result","From probability to decision","Try it yourself"];
+function say(){
+  var s=st.step,b0=st.b0,b1=st.b1;
+  switch(s){
+    case 0:return "Twelve people, one blood test (biomarker in mg/ml). Red: 6 sick people, drawn at 1. Blue: 6 healthy people, drawn at 0. We want a curve that answers: **with this biomarker value, how likely is the person sick?** Press Next.";
+    case 1:return "First idea: a straight line (linear regression through the 0 and 1). In the middle it looks fine, but on the left it goes below 0, and on the right above 1. **A probability below 0 or above 1 makes no sense.**";
+    case 2:return "Logistic regression uses an S-curve instead. It never leaves 0 to 1: low biomarker, p close to 0; high biomarker, p close to 1; in between it rises. But which S-curve? Steeper, flatter, shifted (dashed): there are endless options.";
+    case 3:return "The trick: we change the y-axis from "+MF("<i>p</i>")+" to "+MF(LO+" = log"+PA(FR("<i>p</i>","1 − <i>p</i>")))+". "+MF("<i>p</i> = 0.5")+" becomes 0, "+MF("<i>p</i> = 0.73")+" becomes 1, "+MF("<i>p</i> = 0.88")+" becomes 2, "+MF("<i>p</i> = 0.95")+" becomes 3. **On this axis every S-curve is a straight line.** The sick people sit at +∞, the healthy ones at −∞. So the distances to the line are infinite, and least squares cannot work.";
+    case 4:return "Now choose a line on the right with intercept and slope. Every line on the right is an S-curve on the left. For each person we read the log(odds) on the line and turn it back into a probability: "+MF("<i>p</i> = "+FR(EX("e",LO),"1 + "+EX("e",LO)))+". Tap a person to see the numbers.";
+    case 5:return "Is this a good curve? For each sick person we take p: how likely is sick? For each healthy person 1 − p: how likely is healthy? Multiplied together, this is the likelihood: how likely are exactly our data under this curve. **Tall bars mean the curve fits.** Move the sliders and watch the product.";
+    case 6:if(st.anim)return "The computer changes intercept and slope step by step, always in the direction in which the likelihood grows, until it cannot grow any further.";
+      if(!atBest())return "You moved the line: likelihood "+likStr(st.b0,st.b1)+" instead of "+likStr(BEST[0],BEST[1])+". **Press Find maximum again.** From any start the computer climbs back to the same line.";
+      return "Done: no other line gives a higher likelihood. This is maximum likelihood. Intercept "+f2(BEST[0])+", slope "+f3(BEST[1])+", likelihood "+likStr(BEST[0],BEST[1])+" (log-likelihood "+f2(loglik(BEST[0],BEST[1]))+"). Some bars are still small: the sick person with 7.5 and the healthy one with 13 do not fit any S-curve well. Move a slider and press Find maximum again.";
+    case 7:var z=b0+b1*st.x,o=Math.exp(z);
+      return "Reading the result. The line (right): "+MF(LO+" = "+f2(b0)+" + "+f3(b1)+" · biomarker")+". The slope "+f3(b1)+" means: per 1 mg/ml more, the log(odds) of being sick rise by "+f3(b1)+", so the odds of being sick are multiplied by "+MF(EX("e",f3(b1))+" = "+Math.exp(b1).toFixed(2))+" (odds ratio).<span class=\"par\">At "+st.x.toFixed(1)+" mg/ml: "+MF(LO+" = "+f2(b0)+" + "+f3(b1)+" · "+st.x.toFixed(1)+" = "+f2(z))+", odds = "+(o>=10?o.toFixed(1):o.toFixed(2))+", "+MF("<i>p</i> = "+sig(z).toFixed(2))+". Drag the orange point or use the slider.</span>";
+    case 8:var cut=-b0/b1,cc=counts();
+      return "From probability to decision: from "+MF("<i>p</i> = 0.5")+" on we say sick. On the right this is "+MF(LO+" = 0")+", at a biomarker of "+MF(FR("−intercept","slope")+" = "+FR(f2(-b0),f3(b1))+" = "+cut.toFixed(2))+" mg/ml. "+cc.tp+" of 6 sick people are found, "+cc.fp+" healthy person gets a false alarm: "+(cc.tp+cc.tn)+" of 12 correct. **This is the cut-off we used for the confusion matrix and the ROC curve.**||In the Classification Learner this model is called Logistic Regression. It calls a person sick when "+MF("<i>p</i> ≥ 0.5")+".";
+    case 9:return "Move intercept and slope, press Find maximum or Random line. Which line makes the bars tallest? What happens to the S-curve when the slope gets negative?";
+  }
+}
+function atBest(){return Math.abs(st.b0-BEST[0])<0.02&&Math.abs(st.b1-BEST[1])<0.002}
+function likStr(a,b){var L=Math.exp(loglik(a,b));return L<0.0001?L.toExponential(1):L.toPrecision(2)}
+function counts(){var tp=0,fp=0,tn=0,fn=0;P.forEach(function(p){var c=sig(st.b0+st.b1*p.x)>=0.5;if(p.y){if(c)tp++;else fn++}else{if(c)fp++;else tn++}});return {tp:tp,fp:fp,tn:tn,fn:fn}}
+function noteP(){var s=st.step;if(st.sel!==null&&s>=4){var p=P[st.sel],z=st.b0+st.b1*p.x,q=sig(z);
+    return "Person with "+p.x+" mg/ml ("+(p.y?"sick":"healthy")+"): log(odds) = "+f2(z)+" → p = "+q.toFixed(2)+(p.y?"":", 1 − p = "+(1-q).toFixed(2))+"."}
+  if(s===0)return "The 12 people from the slides. Red: sick, blue: healthy.";if(s===1)return "Grey zones: impossible probabilities.";
+  if(s>=4)return "Hollow points: the probability the curve gives each person. Tap a person.";return "Orange: one possible S-curve."}
+function noteL(){var s=st.step;if(s===3)return "Orange labels: which p belongs to which log(odds).";return "Every person sits at +∞ (sick) or −∞ (healthy). Hollow points: where the line puts them."}
+
+/* ---------- render ---------- */
+function paint(t){t=t.replace(/\b(sick|red)\b/g,'<b class="r">$1</b>').replace(/\b(healthy|blue)\b/g,'<b class="b">$1</b>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  var parts=t.split("||");return parts[0]+(parts[1]?'<span class="cl">'+parts[1]+'</span>':"")}
+function render(){
+  setU();var s=st.step;
+  $("say").innerHTML=paint(say());$("tP").textContent=TITLES[s];$("nP").textContent=noteP();$("nL").textContent=noteL();
+  $("stepno").textContent="Step "+(s+1)+" of "+(LAST+1);$("back").disabled=s===0;$("next").disabled=s===LAST;
+  $("lCard").hidden=s<3;$("grid").className=s<3?"grid one":"grid";$("bCard").hidden=s<5;
+  var sl=s===4||s===5||s===6||s===9;$("b0Box").hidden=!sl;$("b1Box").hidden=!sl;$("xBox").hidden=!(s===7||s===9);
+  $("fit").hidden=!(s===5||s===6||s===9);$("fit").disabled=!!st.anim;$("rand").hidden=s!==9;
+  $("b0").value=st.b0;$("b1").value=st.b1;$("b0Out").textContent=f2(st.b0);$("b1Out").textContent=st.b1.toFixed(3);$("xp").value=st.x;$("xOut").textContent=st.x.toFixed(1);
+  var drag=s>=4;$("cp").style.touchAction=drag?"none":"pan-y";$("cl").style.touchAction=drag?"none":"pan-y";
+  drawP();if(s>=3)drawL();if(s>=5){drawB();renderLk()}
+}
+
+/* ---------- animation: climbing to the maximum ---------- */
+function stopAnim(){if(st.anim){cancelAnimationFrame(st.anim);st.anim=null}}
+function fit(){stopAnim();var path=[[st.b0,st.b1]],b=[st.b0,st.b1];
+  /* damped Newton steps: visible climb, every step raises the likelihood */
+  for(var i=0;i<30;i++){var nb=newton(b[0],b[1]),t=1;while(loglik(b[0]+(nb[0]-b[0])*t,b[1]+(nb[1]-b[1])*t)<loglik(b[0],b[1])&&t>1e-3)t/=2;
+    b=[b[0]+(nb[0]-b[0])*t,b[1]+(nb[1]-b[1])*t];path.push(b);if(Math.abs(b[0]-BEST[0])<1e-6&&Math.abs(b[1]-BEST[1])<1e-7)break}
+  path.push(BEST.slice());var k=0,t0=null,ms=650;
+  function tick(now){if(t0===null)t0=now;var t=Math.min(1,(now-t0)/ms),a=path[k],c=path[k+1];st.b0=a[0]+(c[0]-a[0])*ease(t);st.b1=a[1]+(c[1]-a[1])*ease(t);render();
+    if(t>=1){k++;t0=null}if(k<path.length-1)st.anim=requestAnimationFrame(tick);else{st.anim=null;st.b0=BEST[0];st.b1=BEST[1];st.fitted=true;render()}}
+  st.anim=requestAnimationFrame(tick);render()}
+
+function go(n){stopAnim();n=Math.max(0,Math.min(LAST,n));var old=st.step;st.step=n;
+  if(n<=3){st.b0=n===3?BEST[0]:(n===2?BEST[0]:START[0]);st.b1=n>=2?BEST[1]:START[1];st.sel=null}
+  if(n===4||n===5){if(old<4||old>5){st.b0=START[0];st.b1=START[1]}}
+  if(n===6){if(old===5&&!(Math.abs(st.b0-BEST[0])<0.02&&Math.abs(st.b1-BEST[1])<0.002)){render();fit();return}st.b0=BEST[0];st.b1=BEST[1];st.fitted=true}
+  if(n===7||n===8){st.b0=BEST[0];st.b1=BEST[1];st.x=25}
+  render()}
+
+/* ---------- input ---------- */
+function evX(cv,e,F){var r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
+var dragProbe=false;
+function onDown(cv,frameFn,isL){return function(e){var s=st.step;if(s<4)return;var F=frameFn(),q=evX(cv,e,F);
+  if(s===7||s===9){var z=isL?st.b0+st.b1*st.x:sig(st.b0+st.b1*st.x),PX=px(F,st.x),PY=py(F,z);if(Math.abs(q.x-PX)<34*U&&Math.abs(q.y-PY)<60*U){stopAnim();dragProbe=true;try{cv.setPointerCapture(e.pointerId)}catch(err){}e.preventDefault();return}}
+  /* select the nearest person (column) */
+  var best=null,bd=1e9;P.forEach(function(p,i){var d=Math.abs(px(F,p.x)-q.x);if(d<bd){bd=d;best=i}});if(bd<22*U){st.sel=st.sel===best?null:best;render()}}}
+function onMove(cv,frameFn){return function(e){if(!dragProbe)return;var F=frameFn(),q=evX(cv,e,F);st.x=Math.round(Math.max(0,Math.min(XMAX,(q.x-F.L)/(F.R-F.L)*XMAX))*10)/10;render();e.preventDefault()}}
+[["cp",frameP,false],["cl",frameL,true]].forEach(function(a){var cv=$(a[0]);cv.addEventListener("pointerdown",onDown(cv,a[1],a[2]));cv.addEventListener("pointermove",onMove(cv,a[1]));
+  cv.addEventListener("pointerup",function(){dragProbe=false});cv.addEventListener("pointercancel",function(){dragProbe=false})});
+$("cb").addEventListener("pointerdown",function(e){var r=this.getBoundingClientRect(),x=(e.clientX-r.left)*BW/r.width,V=BW<1000?Math.min(U,1.5):1,L=Math.round(44+16*V),R=BW-10,i=Math.floor((x-L)/((R-L)/P.length));if(i>=0&&i<P.length){st.sel=st.sel===i?null:i;render()}});
+$("b0").addEventListener("input",function(e){stopAnim();st.b0=+e.target.value;render()});
+$("b1").addEventListener("input",function(e){stopAnim();st.b1=+e.target.value;render()});
+$("xp").addEventListener("input",function(e){st.x=+e.target.value;render()});
+$("fit").addEventListener("click",function(){if(st.step===5){go(6);return}fit()});
+$("rand").addEventListener("click",function(){stopAnim();st.b0=Math.round((-7+Math.random()*8)*100)/100;st.b1=Math.round((Math.random()*0.7-0.1)*1000)/1000;render()});
+$("next").addEventListener("click",function(){go(st.step+1)});
+$("back").addEventListener("click",function(){go(st.step-1)});
+$("reset").addEventListener("click",function(){st.sel=null;st.fitted=false;st.x=25;go(0)});
+document.addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){if(st.step<LAST)go(st.step+1);e.preventDefault()}else if(e.key==="ArrowLeft"){go(st.step-1);e.preventDefault()}});
+$("full").addEventListener("click",function(){try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){})}catch(err){}});
+var lastW=window.innerWidth;window.addEventListener("resize",function(){if(window.innerWidth===lastW)return;lastW=window.innerWidth;render()});
+if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+var m=(location.search+location.hash).match(/step=(\d+)/);go(m?Math.max(1,Math.min(LAST+1,+m[1]))-1:0);
+})();
+</script>
+</body>
+</html>
